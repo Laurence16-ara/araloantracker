@@ -279,8 +279,11 @@ begin
 end;
 $$;
 
--- Client signs the loan (from /sign/:token)
-create or replace function public.sign_loan(p_token text, p_signature text, p_signed_name text, p_contract_text text)
+-- Client signs the loan (from /sign/:token).
+-- Address/phone are saved only if the client record doesn't have them yet.
+drop function if exists public.sign_loan(text, text, text, text);
+create or replace function public.sign_loan(p_token text, p_signature text, p_signed_name text, p_contract_text text,
+                                            p_address text default null, p_phone text default null)
 returns json
 language plpgsql security definer
 set search_path = public
@@ -302,6 +305,11 @@ begin
     raise exception 'Please type your full name.';
   end if;
 
+  update public.clients
+     set address = coalesce(nullif(trim(address), ''), left(nullif(trim(p_address), ''), 300)),
+         phone   = coalesce(nullif(trim(phone), ''), left(nullif(trim(p_phone), ''), 20))
+   where id = l.client_id;
+
   update public.loans
      set signature = p_signature,
          signed_name = left(trim(p_signed_name), 120),
@@ -318,11 +326,11 @@ $$;
 
 revoke all on function public.submit_application(jsonb) from public;
 revoke all on function public.get_sign_request(text) from public;
-revoke all on function public.sign_loan(text, text, text, text) from public;
+revoke all on function public.sign_loan(text, text, text, text, text, text) from public;
 revoke all on function public.public_settings() from public;
 grant execute on function public.submit_application(jsonb) to anon, authenticated;
 grant execute on function public.get_sign_request(text) to anon, authenticated;
-grant execute on function public.sign_loan(text, text, text, text) to anon, authenticated;
+grant execute on function public.sign_loan(text, text, text, text, text, text) to anon, authenticated;
 grant execute on function public.public_settings() to anon, authenticated;
 grant execute on function public.is_admin() to authenticated;
 

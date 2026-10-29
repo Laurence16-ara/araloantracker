@@ -1,5 +1,3 @@
-import { utils, writeFile } from 'xlsx'
-
 // Shrink a phone photo to ~150–250 KB JPEG before upload.
 export function compressImage(file, maxSide = 1400, quality = 0.8) {
   return new Promise((resolve, reject) => {
@@ -40,17 +38,5 @@ export function normalizePhone(p) {
   return d
 }
 export const validPhone = (p) => /^09\d{9}$/.test(normalizePhone(p))
-
-// sheets: [{ name, rows: [ {col: value} ] }]
-export function downloadXlsx(filename, sheets) {
-  const wb = utils.book_new()
-  sheets.forEach(({ name, rows }) => {
-    const ws = utils.json_to_sheet(rows.length ? rows : [{ '': 'No data' }])
-    const keys = Object.keys(rows[0] || {})
-    ws['!cols'] = keys.map((k) => ({ wch: Math.max(10, k.length + 2, ...rows.slice(0, 200).map((r) => String(r[k] ?? '').length + 1)) }))
-    utils.book_append_sheet(wb, ws, name.slice(0, 31))
-  })
-  writeFile(wb, filename)
-}
 
 export const cx = (...a) => a.filter(Boolean).join(' ')
