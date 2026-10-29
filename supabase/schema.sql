@@ -133,6 +133,15 @@ create policy admin_all on public.clients  for all to authenticated using (publi
 create policy admin_all on public.loans    for all to authenticated using (public.is_admin()) with check (public.is_admin());
 create policy admin_all on public.payments for all to authenticated using (public.is_admin()) with check (public.is_admin());
 
+-- Table access for logged-in users (rows are still filtered by the policies above).
+-- The public (anon) role gets NO table access — it only uses the functions below.
+grant usage on schema public to anon, authenticated;
+revoke all on public.admins, public.settings, public.clients, public.loans, public.payments from anon;
+grant select on public.admins to authenticated;
+grant select, update on public.settings to authenticated;
+grant select, insert, update, delete on public.clients, public.loans, public.payments to authenticated;
+grant usage, select on all sequences in schema public to authenticated;
+
 -- ---------------------------------------------------------------------
 -- 7. Private file storage for IDs and selfies
 --    Anyone may UPLOAD into kyc/applications/ (the apply form),
