@@ -4,83 +4,118 @@ import ContractView from './ContractView.jsx'
 import { Button } from './ui.jsx'
 import { schedulePlan, peso, fmtDate, SCHEDULES } from '../lib/loanMath.js'
 
-// Signed contract + buttons to send it on Messenger (image), copy the text, or print/save PDF.
-export default function SignedContract({ loan, client, settings }) {
-  const ref = useRef(null)
-  const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState(null)
-  const fileBase = `Loan Agreement #${loan.loan_no} - ${client.full_name}`
+const IMG_OPTS = { pixelRatio: 2, backgroundColor: '#ffffff', skipFonts: true }
+
+// Copies a PNG to the clipboard. The ClipboardItem gets a promise right away
+// (inside the click) so it also works on iPhone Safari.
+async function copyPng(makeBlob) {
+  if (!window.ClipboardItem || !navigator.clipboard?.write) throw new Error('unsupported')
+  await navigator.clipboard.write([new ClipboardItem({ 'image/png': makeBlob() })])
+}
+
+// The contract exactly as it appears in the image (contract + payment schedule when set later).
+function ContractSheet({ loan, client, settings, sheetRef }) {
   const plan = loan.release_date ? schedulePlan(loan) : []
   const showPlan = plan.length > 0 && /as set by the Lender/.test(loan.contract_text || '')
+  return (
+    <div ref={sheetRef} className="bg-white">
+      <ContractView
+        text={loan.contract_text}
+        lenderName={settings.lender_name}
+        lenderSignature={settings.lender_signature}
+        borrowerName={client.full_name}
+        signature={loan.signature}
+        signedAt={loan.signed_at}
+        signedName={loan.signed_name}
+      />
+      {showPlan && (
+        <div className="mt-3 rounded-xl border border-line bg-white p-5 text-[14px]">
+          <div className="font-bold">Payment schedule ({SCHEDULES[loan.schedule]?.label}) · released {fmtDate(loan.release_date)}</div>
+          {plan.map((x) => (
+            <div key={x.n} className="mt-1 flex justify-between border-b border-line py-1 last:border-0">
+              <span>{fmtDate(x.due, { weekday: 'short', month: 'long', day: 'numeric', year: 'numeric' })}</span>
+              <b className="num">{peso(x.amount)}</b>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function useContractImage(loan, client) {
+  const ref = useRef(null)
+  const [busy, setBusy] = useState(null)
+  const [msg, setMsg] = useState(null)
+  const fileBase = `Loan Agreement #${loan.loan_no} - ${client.full_name}`
   const flash = (t) => { setMsg(t); setTimeout(() => setMsg(null), 2500) }
+  const makeBlob = () => toBlob(ref.current, IMG_OPTS)
+
+  const download = (blob) => {
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `${fileBase}.png`
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000)
+  }
+
+  async function copyImage() {
+    setBusy('copy')
+    try {
+      await copyPng(makeBlob)
+      flash('Contract image copied. Paste it in Messenger.')
+    } catch {
+      try { download(await makeBlob()); flash("Copy isn't supported here, so the image was downloaded instead.") }
+      catch { flash('Could not make the image.') }
+    } finally {
+      setBusy(null)
+    }
+  }
 
   async function shareImage() {
-    setBusy(true)
+    setBusy('share')
     try {
-      const blob = await toBlob(ref.current, { pixelRatio: 2, backgroundColor: '#ffffff', skipFonts: true })
+      const blob = await makeBlob()
       const file = new File([blob], `${fileBase}.png`, { type: 'image/png' })
-      if (navigator.canShare?.({ files: [file] })) {
-        await navigator.share({ files: [file], title: fileBase })
-      } else {
-        const a = document.createElement('a')
-        a.href = URL.createObjectURL(blob)
-        a.download = file.name
-        a.click()
-        setTimeout(() => URL.revokeObjectURL(a.href), 2000)
-        flash('Image downloaded. Attach it in Messenger.')
-      }
+      if (navigator.canShare?.({ files: [file] })) await navigator.share({ files: [file], title: fileBase })
+      else { download(blob); flash('Image downloaded. Attach it in Messenger.') }
     } catch (e) {
       if (e?.name !== 'AbortError') flash('Could not make the image. Try Print / Save PDF.')
     } finally {
-      setBusy(false)
+      setBusy(null)
     }
   }
+  return { ref, busy, msg, copyImage, shareImage }
+}
 
-  async function copyText() {
-    const signed = loan.signed_at
-      ? `\n\nSigned electronically by ${loan.signed_name || client.full_name} on ${new Date(loan.signed_at).toLocaleString('en-PH', { timeZone: 'Asia/Manila' })}.`
-      : ''
-    const sched = showPlan ? `\n\nPAYMENT SCHEDULE (${SCHEDULES[loan.schedule]?.label})\n` + plan.map((x) => `${fmtDate(x.due)}: ${peso(x.amount)}`).join('\n') : ''
-    const text = `LOAN AGREEMENT\n\n${(loan.contract_text || '').replace(/\*\*/g, '')}${signed}\n\nLender: ${settings.lender_name}\nBorrower: ${client.full_name}${sched}`
-    try {
-      await navigator.clipboard.writeText(text)
-      flash('Contract text copied. Paste it in Messenger.')
-    } catch {
-      window.prompt('Copy the contract:', text)
-    }
-  }
-
+// Full contract view with buttons (used in the contract window).
+export default function SignedContract({ loan, client, settings }) {
+  const { ref, busy, msg, copyImage, shareImage } = useContractImage(loan, client)
   return (
     <div>
       <div className="no-print mb-3 flex flex-wrap items-center gap-2">
-        <Button size="sm" onClick={shareImage} loading={busy}>Share / Download image</Button>
-        <Button size="sm" variant="secondary" onClick={copyText}>Copy text</Button>
+        <Button size="sm" onClick={copyImage} loading={busy === 'copy'}>Copy image</Button>
+        <Button size="sm" variant="secondary" onClick={shareImage} loading={busy === 'share'}>Share / Download</Button>
         <Button size="sm" variant="secondary" onClick={() => printContract(loan, settings, client)}>Print / Save PDF</Button>
         {msg && <span className="text-xs font-semibold text-moss">{msg}</span>}
       </div>
-      <div ref={ref}>
-        <ContractView
-          text={loan.contract_text}
-          lenderName={settings.lender_name}
-          lenderSignature={settings.lender_signature}
-          borrowerName={client.full_name}
-          signature={loan.signature}
-          signedAt={loan.signed_at}
-          signedName={loan.signed_name}
-        />
-        {showPlan && (
-          <div className="mt-3 rounded-xl border border-line bg-white p-5 text-[14px]">
-            <div className="font-bold">Payment schedule ({SCHEDULES[loan.schedule]?.label}) · released {fmtDate(loan.release_date)}</div>
-            {plan.map((x) => (
-              <div key={x.n} className="mt-1 flex justify-between border-b border-line py-1 last:border-0">
-                <span>{fmtDate(x.due, { weekday: 'short', month: 'long', day: 'numeric', year: 'numeric' })}</span>
-                <b className="num">{peso(x.amount)}</b>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      <ContractSheet loan={loan} client={client} settings={settings} sheetRef={ref} />
     </div>
+  )
+}
+
+// One-tap button for cards: renders the contract off-screen and copies it as an image.
+export function CopyContractImageButton({ loan, client, settings, size = 'sm', variant = 'secondary' }) {
+  const { ref, busy, msg, copyImage } = useContractImage(loan, client)
+  if (!loan.contract_text) return null
+  return (
+    <>
+      <Button size={size} variant={variant} onClick={copyImage} loading={busy === 'copy'}>Copy contract image</Button>
+      {msg && <div className="fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-ink px-4 py-2.5 text-sm font-semibold text-paper shadow-lg lg:bottom-6">{msg}</div>}
+      <div aria-hidden="true" style={{ position: 'fixed', left: -10000, top: 0, width: 720, pointerEvents: 'none' }}>
+        <ContractSheet loan={loan} client={client} settings={settings} sheetRef={ref} />
+      </div>
+    </>
   )
 }
 

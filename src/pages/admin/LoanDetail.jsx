@@ -5,7 +5,7 @@ import { useData } from '../../lib/data.jsx'
 import { peso, fmtDate, SCHEDULES, interestFor, todayPH } from '../../lib/loanMath.js'
 import { Badge, Button, Card, Empty, ErrorNote, Field, Modal, Segmented } from '../../components/ui.jsx'
 import { PaymentModal, SignLinkBox } from '../../components/admin.jsx'
-import SignedContract from '../../components/SignedContract.jsx'
+import SignedContract, { CopyContractImageButton } from '../../components/SignedContract.jsx'
 import { payoutLabel } from '../../lib/payout.js'
 
 export default function LoanDetail() {
@@ -52,6 +52,7 @@ export default function LoanDetail() {
         <div className="flex flex-wrap gap-2">
           {loan.status === 'active' && <Button onClick={() => setPay(true)}>+ Add payment</Button>}
           {loan.signature && <Button variant="secondary" onClick={() => setContract(true)}>Contract</Button>}
+          {loan.signature && <CopyContractImageButton loan={loan} client={c} settings={settings} size="md" />}
           <Button variant="secondary" onClick={() => setEdit(true)}>Edit</Button>
         </div>
       </div>

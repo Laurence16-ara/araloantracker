@@ -7,7 +7,7 @@ import { payoutLabel } from '../../lib/payout.js'
 import { randomToken } from '../../lib/utils.js'
 import { Badge, Button, Card, Empty, ErrorNote, Field, Modal, PageHeader, Segmented } from '../../components/ui.jsx'
 import { PrivateImage, SignLinkBox } from '../../components/admin.jsx'
-import SignedContract from '../../components/SignedContract.jsx'
+import SignedContract, { CopyContractImageButton } from '../../components/SignedContract.jsx'
 
 export default function Applications() {
   const { loans } = useData()
@@ -117,6 +117,7 @@ function ReleaseCard({ loan }) {
         <Field label="Release date" className="w-40"><input className="input" type="date" value={releaseDate} onChange={(e) => setReleaseDate(e.target.value)} /></Field>
         <Button onClick={release} loading={busy === 'release'}>Release loan</Button>
         <Button variant="secondary" onClick={() => setContract(true)}>View contract</Button>
+        <CopyContractImageButton loan={loan} client={c} settings={settings} size="md" />
         <Button variant="danger" onClick={reject} loading={busy === 'reject'}>Reject</Button>
       </div>
       <div className="mt-2"><ErrorNote>{err}</ErrorNote></div>
