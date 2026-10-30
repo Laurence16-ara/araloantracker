@@ -37,7 +37,9 @@ export function contractValues({ loan, client, settings, agreementDate }) {
   const n = SCHEDULES[loan.schedule]?.count || 1
   const each = plan.length ? plan[0].amount : Math.round(total / n)
   let terms
-  if (plan.length) {
+  if (!loan.schedule) {
+    terms = 'within one (1) month, either in one (1) payment, in two (2) payments every 15 days, or in four (4) weekly payments, as set by the Lender upon release of the loan'
+  } else if (plan.length) {
     terms = plan.length === 1
       ? `one payment of ${peso(plan[0].amount)} on ${fmtDate(plan[0].due)}`
       : plan.map((p) => `${peso(p.amount)} on ${fmtDate(p.due)}`).join('; ')
@@ -68,7 +70,9 @@ export function contractValues({ loan, client, settings, agreementDate }) {
     interest: peso(loan.interest),
     interest_rate: `${Number(loan.interest_rate)}% per month`,
     penalty_rate: `${rate}%`,
-    penalty_example: `${peso(round2((each * rate) / 100))} per day on a missed ${peso(each)} payment`,
+    penalty_example: loan.schedule && n > 1
+      ? `${peso(round2((each * rate) / 100))} per day on a missed ${peso(each)} payment, or ${peso(round2((total * rate) / 100))} per day if the full ${peso(total)} is unpaid`
+      : `${peso(round2((total * rate) / 100))} per day if the full ${peso(total)} is unpaid`,
   }
 }
 

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase.js'
-import { SCHEDULES, peso, interestFor, round2 } from '../lib/loanMath.js'
+import { peso, interestFor, round2 } from '../lib/loanMath.js'
+import { PAYOUT_METHODS } from '../lib/payout.js'
 import { buildContractText } from '../lib/contract.js'
 import { compressImage, normalizePhone, validPhone, uuid, cx } from '../lib/utils.js'
 import PublicShell from '../components/PublicShell.jsx'
@@ -18,7 +19,7 @@ export default function Apply() {
   const [settings, setSettings] = useState(null)
   const [loadErr, setLoadErr] = useState(null)
   const [step, setStep] = useState(0)
-  const [f, setF] = useState({ full_name: '', phone: '', address: '', facebook: '', referred_by: '', id_type: ID_TYPES[0], principal: '', schedule: 'monthly' })
+  const [f, setF] = useState({ full_name: '', phone: '', address: '', id_type: ID_TYPES[0], principal: '', payout_method: 'gcash', payout_other: '', use_my_number: true, payout_account: '' })
   const [idFile, setIdFile] = useState(null)
   const [selfieFile, setSelfieFile] = useState(null)
   const [signature, setSignature] = useState(null)
@@ -36,12 +37,14 @@ export default function Apply() {
   const amount = Number(f.principal) || 0
   const loan = useMemo(() => {
     const rate = settings?.default_rate ?? 20
-    return { principal: amount, interest_rate: rate, interest: interestFor(amount, rate), schedule: f.schedule, release_date: null }
-  }, [amount, f.schedule, settings])
+    return { principal: amount, interest_rate: rate, interest: interestFor(amount, rate), schedule: null, release_date: null }
+  }, [amount, settings])
   const contractText = useMemo(
     () => (settings ? buildContractText({ loan, client: { ...f, phone: normalizePhone(f.phone) }, settings }) : ''),
     [loan, f, settings],
   )
+
+  const payoutNumber = f.use_my_number ? normalizePhone(f.phone) : normalizePhone(f.payout_account)
 
   function validate(s) {
     const e = {}
@@ -57,6 +60,8 @@ export default function Apply() {
     if (s === 2) {
       if (amount < settings.min_amount || amount > settings.max_amount)
         e.principal = `Amount must be between ${peso(settings.min_amount)} and ${peso(settings.max_amount)}.`
+      if (f.payout_method === 'other' && f.payout_other.trim().length < 2) e.payout_other = 'Please type the name of your e-wallet.'
+      if (!f.use_my_number && !validPhone(f.payout_account)) e.payout_account = 'Enter the 11-digit number of your account, e.g. 09171234567.'
     }
     if (s === 3) {
       if (!agree) e.agree = 'Please confirm that you agree to the contract.'
@@ -87,7 +92,7 @@ export default function Apply() {
       const id_photo_path = await up(idFile, 'id')
       const selfie_path = await up(selfieFile, 'selfie')
       const { data, error } = await supabase.rpc('submit_application', {
-        p: { ...f, phone: normalizePhone(f.phone), principal: amount, id_photo_path, selfie_path, signature, contract_text: contractText },
+        p: { full_name: f.full_name, address: f.address, id_type: f.id_type, phone: normalizePhone(f.phone), principal: amount, payout_method: f.payout_method, payout_other: f.payout_method === 'other' ? f.payout_other.trim() : null, payout_account: payoutNumber, id_photo_path, selfie_path, signature, contract_text: contractText },
       })
       if (error) throw error
       setDone(data)
@@ -127,6 +132,7 @@ export default function Apply() {
     )
 
   const total = round2(loan.principal + loan.interest)
+  const dailyPenalty = round2((total * Number(settings.penalty_rate)) / 100)
   return (
     <PublicShell lender={settings.lender_name}>
       <h1 className="font-serif text-[28px] font-semibold leading-tight">Loan application</h1>
@@ -151,12 +157,6 @@ export default function Apply() {
           </Field>
           <Field label="Complete address" error={errors.address}>
             <textarea className="input" rows={2} value={f.address} onChange={set('address')} placeholder="House no., street, barangay, city" />
-          </Field>
-          <Field label="Facebook name or link" hint="So we can message you">
-            <input className="input" value={f.facebook} onChange={set('facebook')} />
-          </Field>
-          <Field label="Who referred you? (optional)">
-            <input className="input" value={f.referred_by} onChange={set('referred_by')} />
           </Field>
         </Card>
       )}
@@ -193,22 +193,30 @@ export default function Apply() {
           </div>
 
           <div>
-            <span className="label">How do you want to pay?</span>
-            <div className="grid gap-2">
-              {Object.entries(SCHEDULES).map(([k, s]) => {
-                const each = amount ? Math.round(total / s.count) : 0
-                return (
-                  <button key={k} type="button" onClick={() => setF((x) => ({ ...x, schedule: k }))}
-                    className={cx('flex items-center justify-between rounded-xl border-2 px-4 py-3 text-left transition', f.schedule === k ? 'border-moss bg-moss-light/50' : 'border-line bg-white')}>
-                    <span>
-                      <span className="block font-semibold">{s.label}</span>
-                      <span className="text-xs text-ink-soft">{s.short} within 1 month</span>
-                    </span>
-                    <span className="text-right font-semibold num">{amount ? `${s.count > 1 ? s.count + ' × ' : ''}${peso(each)}` : '—'}</span>
-                  </button>
-                )
-              })}
+            <span className="label">Where should we send your loan?</span>
+            <div className="grid grid-cols-2 gap-2">
+              {PAYOUT_METHODS.map(([k, label]) => (
+                <button key={k} type="button" onClick={() => setF((x) => ({ ...x, payout_method: k }))}
+                  className={cx('rounded-xl border-2 px-3 py-2.5 text-left text-sm font-semibold transition', f.payout_method === k ? 'border-moss bg-moss-light/50 text-moss' : 'border-line bg-white text-ink')}>
+                  {label}
+                </button>
+              ))}
             </div>
+            {f.payout_method === 'other' && (
+              <Field label="Name of e-wallet" error={errors.payout_other} className="mt-3">
+                <input className="input" value={f.payout_other} onChange={set('payout_other')} placeholder="e.g. ShopeePay, GoTyme" />
+              </Field>
+            )}
+            <label className="mt-3 flex items-center gap-3 text-sm">
+              <input type="checkbox" className="h-5 w-5 accent-moss" checked={f.use_my_number}
+                onChange={(e) => setF((x) => ({ ...x, use_my_number: e.target.checked }))} />
+              <span>Use my mobile number <b className="num">{normalizePhone(f.phone)}</b></span>
+            </label>
+            {!f.use_my_number && (
+              <Field label="Account number" error={errors.payout_account} className="mt-3">
+                <input className="input num" inputMode="tel" value={f.payout_account} onChange={set('payout_account')} placeholder="09XXXXXXXXX" />
+              </Field>
+            )}
           </div>
 
           {amount > 0 && (
@@ -216,8 +224,18 @@ export default function Apply() {
               <Row k="Loan amount" v={peso(loan.principal)} />
               <Row k={`Interest (${loan.interest_rate}% for 1 month)`} v={peso(loan.interest)} />
               <div className="my-2 border-t border-line" />
-              <Row k="Total to pay" v={peso(total)} bold />
-              <p className="mt-2 text-xs text-ink-faint">Late payments: {settings.penalty_rate}% of the unpaid amount per day.</p>
+              <Row k="Total to pay within 1 month" v={peso(total)} bold />
+              <p className="mt-2 text-xs text-ink-soft">The payment schedule (one payment, every 15 days, or weekly) will be set by the lender when your loan is approved.</p>
+            </div>
+          )}
+          {amount > 0 && (
+            <div className="rounded-xl border border-rust/25 bg-rust-light p-4 text-sm">
+              <div className="font-semibold text-rust">If you pay late</div>
+              <div className="mt-1 flex items-baseline justify-between gap-3">
+                <span className="text-ink-soft">Penalty per day if the full {peso(total)} is unpaid</span>
+                <span className="text-lg font-bold text-rust num">{peso(dailyPenalty)}/day</span>
+              </div>
+              <p className="mt-1 text-xs text-ink-soft">That is {settings.penalty_rate}% of the unpaid amount for every day of delay, until fully paid.</p>
             </div>
           )}
         </Card>

@@ -2,9 +2,10 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase.js'
 import { useData } from '../../lib/data.jsx'
-import { peso, fmtDate, SCHEDULES, round2, todayPH } from '../../lib/loanMath.js'
+import { peso, fmtDate, SCHEDULES, round2, todayPH, schedulePlan } from '../../lib/loanMath.js'
+import { payoutLabel } from '../../lib/payout.js'
 import { randomToken } from '../../lib/utils.js'
-import { Badge, Button, Card, Empty, ErrorNote, Field, Modal, PageHeader } from '../../components/ui.jsx'
+import { Badge, Button, Card, Empty, ErrorNote, Field, Modal, PageHeader, Segmented } from '../../components/ui.jsx'
 import { PrivateImage, SignLinkBox } from '../../components/admin.jsx'
 import ContractView from '../../components/ContractView.jsx'
 
@@ -32,6 +33,9 @@ function ReleaseCard({ loan }) {
   const c = loan.client
   const isNew = c?.status === 'pending'
   const [releaseDate, setReleaseDate] = useState(todayPH())
+  const [schedule, setSchedule] = useState(loan.schedule || 'monthly')
+  const [copied, setCopied] = useState(false)
+  const plan = schedulePlan({ ...loan, schedule, release_date: releaseDate })
   const [busy, setBusy] = useState(null)
   const [err, setErr] = useState(null)
   const [contract, setContract] = useState(false)
@@ -40,7 +44,7 @@ function ReleaseCard({ loan }) {
 
   async function release() {
     setBusy('release'); setErr(null)
-    const { error } = await supabase.from('loans').update({ status: 'active', release_date: releaseDate }).eq('id', loan.id)
+    const { error } = await supabase.from('loans').update({ status: 'active', release_date: releaseDate, schedule }).eq('id', loan.id)
     if (!error && isNew) await supabase.from('clients').update({ status: 'approved' }).eq('id', c.id)
     setBusy(null)
     if (error) return setErr(error.message)
@@ -67,7 +71,7 @@ function ReleaseCard({ loan }) {
         </div>
         <div className="text-right">
           <div className="font-serif text-2xl font-semibold num">{peso(loan.principal)}</div>
-          <div className="text-xs text-ink-soft">{SCHEDULES[loan.schedule].label} · total {peso(total)}</div>
+          <div className="text-xs text-ink-soft">total {peso(total)}</div>
         </div>
       </div>
 
@@ -78,8 +82,7 @@ function ReleaseCard({ loan }) {
           <dl className="space-y-1.5 text-sm">
             <Info k="Mobile" v={c.phone} />
             <Info k="Address" v={c.address} />
-            <Info k="Facebook" v={c.facebook} />
-            <Info k="Referred by" v={c.referred_by_text} />
+
           </dl>
         </div>
       )}
@@ -90,7 +93,27 @@ function ReleaseCard({ loan }) {
         </div>
       )}
 
-      <div className="mt-4 flex flex-wrap items-end gap-3 border-t border-line pt-4">
+      {loan.payout_method && (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-moss/30 bg-moss-light/50 px-3 py-2.5">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wider text-moss">Send loan to</div>
+            <div className="font-semibold num">{payoutLabel(loan)}</div>
+          </div>
+          <Button size="sm" variant="secondary" onClick={async () => { await navigator.clipboard.writeText(loan.payout_account || '').catch(() => {}); setCopied(true); setTimeout(() => setCopied(false), 1500) }}>
+            {copied ? 'Copied ✓' : 'Copy number'}
+          </Button>
+        </div>
+      )}
+
+      <div className="mt-4 border-t border-line pt-4">
+        <span className="label">Payment schedule</span>
+        <Segmented value={schedule} onChange={setSchedule} options={Object.entries(SCHEDULES).map(([k, x]) => [k, x.label])} />
+        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-ink-soft">
+          {plan.map((p) => <span key={p.n} className="num">{fmtDate(p.due, { month: 'short', day: 'numeric' })}: <b className="text-ink">{peso(p.amount)}</b></span>)}
+        </div>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-end gap-3">
         <Field label="Release date" className="w-40"><input className="input" type="date" value={releaseDate} onChange={(e) => setReleaseDate(e.target.value)} /></Field>
         <Button onClick={release} loading={busy === 'release'}>Release loan</Button>
         <Button variant="secondary" onClick={() => setContract(true)}>View contract</Button>

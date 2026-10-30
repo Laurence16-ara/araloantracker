@@ -300,7 +300,7 @@ export function PaymentModal({ open, onClose, loan }) {
     onClose()
   }
   return (
-    <Modal open={open} onClose={onClose} title="Record payment">
+    <Modal open={open} onClose={onClose} title="Add payment">
       <div className="space-y-3">
         <div className="rounded-lg bg-paper p-3 text-sm">
           <div className="flex justify-between"><span className="text-ink-soft">Balance</span><span className="font-bold num">{peso(loan.state.balance)}</span></div>
@@ -308,7 +308,7 @@ export function PaymentModal({ open, onClose, loan }) {
           {loan.state.penaltyBalance > 0 && <div className="flex justify-between text-rust"><span>Penalty so far</span><span className="num">{peso(loan.state.penaltyBalance)}</span></div>}
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Amount paid"><input className="input font-semibold num" inputMode="decimal" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} /></Field>
+          <Field label="Amount received" hint="Full or partial"><input className="input font-semibold num" inputMode="decimal" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} /></Field>
           <Field label="Date"><input className="input" type="date" value={f.paid_on} onChange={(e) => setF({ ...f, paid_on: e.target.value })} /></Field>
           <Field label="Penalty collected" hint="Separate from the balance"><input className="input num" inputMode="decimal" value={f.penalty} onChange={(e) => setF({ ...f, penalty: e.target.value })} placeholder="0" /></Field>
           <Field label="Method">
@@ -317,6 +317,9 @@ export function PaymentModal({ open, onClose, loan }) {
             </select>
           </Field>
         </div>
+        {Number(f.amount) > 0 && Number(f.amount) < loan.state.balance && (
+          <div className="rounded-lg bg-amber-light px-3 py-2 text-sm text-amber">Partial payment. Balance after this: <b className="num">{peso(round2(loan.state.balance - Number(f.amount)))}</b></div>
+        )}
         <div className="flex flex-wrap gap-2">
           <button className="rounded-full border border-line px-3 py-1 text-xs font-semibold text-ink-soft" onClick={() => setF({ ...f, amount: String(loan.state.balance) })}>Full balance {peso(loan.state.balance)}</button>
           {loan.state.penaltyBalance > 0 && <button className="rounded-full border border-line px-3 py-1 text-xs font-semibold text-ink-soft" onClick={() => setF({ ...f, penalty: String(loan.state.penaltyBalance) })}>+ penalty {peso(loan.state.penaltyBalance)}</button>}

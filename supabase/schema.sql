@@ -94,6 +94,10 @@ create table if not exists public.loans (
   note text,
   created_at timestamptz not null default now()
 );
+alter table public.loans add column if not exists payout_method text
+  check (payout_method in ('gcash','maya','seabank','other'));
+alter table public.loans add column if not exists payout_other text;    -- name of the e-wallet when 'other'
+alter table public.loans add column if not exists payout_account text;  -- number to send the loan to
 create index if not exists loans_client_idx on public.loans (client_id);
 create index if not exists loans_release_idx on public.loans (release_date);
 
@@ -206,12 +210,15 @@ begin
   end if;
 
   v_amount := (p ->> 'principal')::numeric;
-  v_schedule := coalesce(p ->> 'schedule', 'monthly');
+  v_schedule := 'monthly';  -- the lender sets the real schedule when releasing
   if v_amount is null or v_amount < s.min_amount or v_amount > s.max_amount then
     raise exception 'Amount must be between % and %.', s.min_amount, s.max_amount;
   end if;
-  if v_schedule not in ('monthly','semi_monthly','weekly') then
-    raise exception 'Invalid payment schedule.';
+  if coalesce(p ->> 'payout_method', '') not in ('gcash','maya','seabank','other') then
+    raise exception 'Please choose where to send your loan.';
+  end if;
+  if coalesce(p ->> 'payout_account', '') !~ '^09[0-9]{9}$' then
+    raise exception 'Please enter a valid 11-digit account number.';
   end if;
   if coalesce(trim(p ->> 'full_name'), '') = '' or coalesce(trim(p ->> 'phone'), '') = ''
      or coalesce(trim(p ->> 'address'), '') = '' then
@@ -229,19 +236,20 @@ begin
     raise exception 'Contract too long.';
   end if;
 
-  insert into public.clients (full_name, phone, address, facebook, referred_by_text,
+  insert into public.clients (full_name, phone, address,
                               id_type, id_photo_path, selfie_path, status, source)
   values (left(trim(p ->> 'full_name'), 120), left(trim(p ->> 'phone'), 20),
-          left(trim(p ->> 'address'), 300), left(trim(p ->> 'facebook'), 200),
-          left(trim(p ->> 'referred_by'), 120), left(p ->> 'id_type', 60),
+          left(trim(p ->> 'address'), 300), left(p ->> 'id_type', 60),
           p ->> 'id_photo_path', p ->> 'selfie_path', 'pending', 'online')
   returning id into v_client;
 
   insert into public.loans (client_id, principal, interest_rate, interest, schedule,
-                            status, signature, signed_name, signed_at, contract_text, source)
+                            status, signature, signed_name, signed_at, contract_text, source,
+                            payout_method, payout_other, payout_account)
   values (v_client, v_amount, s.default_rate, round(v_amount * s.default_rate / 100, 2),
           v_schedule, 'for_release', p ->> 'signature', left(trim(p ->> 'full_name'), 120),
-          now(), p ->> 'contract_text', 'online')
+          now(), p ->> 'contract_text', 'online',
+          p ->> 'payout_method', left(trim(p ->> 'payout_other'), 60), p ->> 'payout_account')
   returning * into v_loan;
 
   return json_build_object('loan_no', v_loan.loan_no);

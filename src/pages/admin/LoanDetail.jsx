@@ -6,6 +6,7 @@ import { peso, fmtDate, SCHEDULES, interestFor, todayPH } from '../../lib/loanMa
 import { Badge, Button, Card, Empty, ErrorNote, Field, Modal, Segmented } from '../../components/ui.jsx'
 import { PaymentModal, SignLinkBox } from '../../components/admin.jsx'
 import ContractView from '../../components/ContractView.jsx'
+import { payoutLabel } from '../../lib/payout.js'
 
 export default function LoanDetail() {
   const { id } = useParams()
@@ -49,13 +50,14 @@ export default function LoanDetail() {
           <div className="text-sm text-ink-soft">Loan #{loan.loan_no} · {SCHEDULES[loan.schedule].label} · {Number(loan.interest_rate)}% interest</div>
         </div>
         <div className="flex flex-wrap gap-2">
-          {loan.status === 'active' && <Button onClick={() => setPay(true)}>Record payment</Button>}
+          {loan.status === 'active' && <Button onClick={() => setPay(true)}>+ Add payment</Button>}
           {loan.signature && <Button variant="secondary" onClick={() => setContract(true)}>Contract</Button>}
           <Button variant="secondary" onClick={() => setEdit(true)}>Edit</Button>
         </div>
       </div>
 
       {loan.note && <div className="mb-4 rounded-lg bg-paper px-3 py-2 text-sm text-ink-soft">📝 {loan.note}</div>}
+      {loan.payout_method && <div className="mb-4 rounded-lg bg-paper px-3 py-2 text-sm"><span className="text-ink-soft">Loan sent to:</span> <b className="num">{payoutLabel(loan)}</b></div>}
       {loan.status === 'awaiting_signature' && <div className="mb-4"><SignLinkBox loan={loan} client={c} /></div>}
       {loan.status === 'for_release' && (
         <div className="mb-4 rounded-xl border border-amber/30 bg-amber-light px-4 py-3 text-sm">Signed and waiting for release. <Link to="/admin/applications" className="font-semibold underline">Go to Applications</Link></div>
@@ -106,7 +108,10 @@ export default function LoanDetail() {
         </Card>
 
         <Card>
-          <h2 className="border-b border-line px-4 py-3 font-semibold">Payments received</h2>
+          <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
+            <h2 className="font-semibold">Payments received</h2>
+            {loan.status === 'active' && <Button size="sm" onClick={() => setPay(true)}>+ Add payment</Button>}
+          </div>
           {loan.payments.length ? (
             <div className="overflow-x-auto"><table className="tbl w-full">
               <thead><tr><th>Date</th><th className="!text-right">Amount</th><th className="!text-right">Penalty</th><th>Method</th><th /></tr></thead>
