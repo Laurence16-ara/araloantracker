@@ -121,7 +121,7 @@ function ReleaseCard({ loan }) {
       </div>
       <div className="mt-2"><ErrorNote>{err}</ErrorNote></div>
       <Modal open={contract} onClose={() => setContract(false)} title="Signed contract" wide>
-        <ContractView text={loan.contract_text} lenderName={settings.lender_name} borrowerName={c.full_name} signature={loan.signature} signedAt={loan.signed_at} signedName={loan.signed_name} />
+        <ContractView text={loan.contract_text} lenderName={settings.lender_name} lenderSignature={settings.lender_signature} borrowerName={c.full_name} signature={loan.signature} signedAt={loan.signed_at} signedName={loan.signed_name} />
       </Modal>
     </Card>
   )

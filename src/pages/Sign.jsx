@@ -109,7 +109,7 @@ export default function Sign() {
         </Card>
       )}
 
-      <ContractView text={text} lenderName={req.lender_name} borrowerName={req.borrower_name} />
+      <ContractView text={text} lenderName={req.lender_name} lenderSignature={req.lender_signature} borrowerName={req.borrower_name} />
 
       <Card className="mt-4 space-y-4 p-5">
         <label className="flex items-start gap-3 text-sm">

@@ -11,7 +11,7 @@ function renderInline(line, key) {
 }
 
 // Renders contract text (**bold**, blank line = paragraph) + signature block.
-export default function ContractView({ text, lenderName, borrowerName, signature, signedAt, signedName }) {
+export default function ContractView({ text, lenderName, lenderSignature, borrowerName, signature, signedAt, signedName }) {
   const paragraphs = (text || '').split(/\n\s*\n/)
   return (
     <div className="print-area rounded-xl border border-line bg-white p-5 text-[14px] leading-relaxed text-ink sm:p-8">
@@ -30,7 +30,9 @@ export default function ContractView({ text, lenderName, borrowerName, signature
       </div>
       <div className="mt-8 grid gap-8 sm:grid-cols-2">
         <div>
-          <div className="h-16" />
+          <div className="flex h-16 items-end">
+            {lenderSignature && <img src={lenderSignature} alt="Lender signature" className="max-h-16 max-w-full" />}
+          </div>
           <div className="border-t border-ink pt-1 text-sm">
             <div className="font-semibold">{lenderName}</div>
             <div className="text-ink-faint">Lender</div>

@@ -40,6 +40,7 @@ create table if not exists public.settings (
   contract_template text,
   updated_at timestamptz not null default now()
 );
+alter table public.settings add column if not exists lender_signature text;  -- PNG data URL
 insert into public.settings (id) values (1) on conflict (id) do nothing;
 
 -- ---------------------------------------------------------------------
@@ -187,7 +188,8 @@ as $$
     'apply_open', apply_open,
     'min_amount', min_amount,
     'max_amount', max_amount,
-    'contract_template', contract_template
+    'contract_template', contract_template,
+    'lender_signature', lender_signature
   ) from public.settings where id = 1;
 $$;
 
@@ -291,7 +293,8 @@ begin
     'lender_name', s.lender_name,
     'lender_address', s.lender_address,
     'penalty_rate', s.penalty_rate,
-    'contract_template', s.contract_template
+    'contract_template', s.contract_template,
+    'lender_signature', s.lender_signature
   );
 end;
 $$;

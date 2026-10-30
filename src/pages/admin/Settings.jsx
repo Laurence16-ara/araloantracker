@@ -5,6 +5,7 @@ import { exportBackup } from '../../lib/exports.js'
 import { DEFAULT_TEMPLATE, buildContractText } from '../../lib/contract.js'
 import { Button, Card, ErrorNote, Field, Modal, PageHeader } from '../../components/ui.jsx'
 import ContractView from '../../components/ContractView.jsx'
+import SignaturePad from '../../components/SignaturePad.jsx'
 
 const PLACEHOLDERS = ['agreement_date', 'lender_name', 'lender_address', 'borrower_name', 'borrower_address', 'borrower_phone', 'principal', 'release_date', 'due_date', 'total', 'payment_terms', 'interest', 'interest_rate', 'penalty_rate', 'penalty_example']
 
@@ -46,6 +47,7 @@ export default function Settings() {
     <>
       <PageHeader title="Settings" />
       <div className="grid gap-5 lg:grid-cols-2">
+        <div className="space-y-5">
         <Card className="space-y-4 p-5">
           <h2 className="font-semibold">Lender & rates</h2>
           <Field label="Lender name"><input className="input" value={f.lender_name || ''} onChange={set('lender_name')} /></Field>
@@ -57,6 +59,8 @@ export default function Settings() {
             <Field label="Online max amount"><input className="input num" value={f.max_amount ?? ''} onChange={set('max_amount')} /></Field>
           </div>
         </Card>
+        <LenderSignature current={settings.lender_signature} name={settings.lender_name} onSaved={reload} />
+        </div>
 
         <div className="space-y-5">
           <Card className="space-y-3 p-5">
@@ -101,8 +105,51 @@ export default function Settings() {
       </div>
 
       <Modal open={preview} onClose={() => setPreview(false)} title="Contract preview (sample loan)" wide>
-        <ContractView text={sampleText} lenderName={f.lender_name} borrowerName="Juan Dela Cruz" />
+        <ContractView text={sampleText} lenderName={f.lender_name} lenderSignature={settings.lender_signature} borrowerName="Juan Dela Cruz" />
       </Modal>
     </>
+  )
+}
+
+function LenderSignature({ current, name, onSaved }) {
+  const [editing, setEditing] = useState(!current)
+  const [sig, setSig] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState(null)
+  async function save(value) {
+    setBusy(true); setErr(null)
+    const { error } = await supabase.from('settings').update({ lender_signature: value, updated_at: new Date().toISOString() }).eq('id', 1)
+    setBusy(false)
+    if (error) return setErr(error.message)
+    setEditing(false); setSig(null)
+    onSaved()
+  }
+  return (
+    <Card className="space-y-3 p-5">
+      <div>
+        <h2 className="font-semibold">Lender signature</h2>
+        <p className="text-sm text-ink-soft">Sign once. It appears on the lender line of every contract{name ? `, above "${name}"` : ''}.</p>
+      </div>
+      {!editing && current ? (
+        <>
+          <div className="flex h-24 items-center justify-center rounded-xl border border-line bg-white p-2">
+            <img src={current} alt="Lender signature" className="max-h-20 max-w-full" />
+          </div>
+          <div className="flex gap-2">
+            <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>Sign again</Button>
+            <Button size="sm" variant="ghost" loading={busy} onClick={() => confirm('Remove the lender signature from contracts?') && save(null)}>Remove</Button>
+          </div>
+        </>
+      ) : (
+        <>
+          <SignaturePad onChange={setSig} />
+          <div className="flex gap-2">
+            <Button size="sm" disabled={!sig} loading={busy} onClick={() => save(sig)}>Save signature</Button>
+            {current && <Button size="sm" variant="secondary" onClick={() => setEditing(false)}>Cancel</Button>}
+          </div>
+        </>
+      )}
+      <ErrorNote>{err}</ErrorNote>
+    </Card>
   )
 }

@@ -253,7 +253,7 @@ export default function Apply() {
       {step === LAST && (
         <div className="space-y-4">
           <p className="text-sm text-ink-soft">Please read the contract carefully, then sign below.</p>
-          <ContractView text={contractText} lenderName={settings.lender_name} borrowerName={f.full_name} />
+          <ContractView text={contractText} lenderName={settings.lender_name} lenderSignature={settings.lender_signature} borrowerName={f.full_name} />
           <Card className="space-y-4 p-5">
             <label className="flex items-start gap-3 text-sm">
               <input type="checkbox" className="mt-0.5 h-5 w-5 accent-moss" checked={agree} onChange={(e) => setAgree(e.target.checked)} />
