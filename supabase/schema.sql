@@ -96,7 +96,7 @@ create table if not exists public.loans (
 );
 alter table public.loans add column if not exists payout_method text
   check (payout_method in ('gcash','maya','seabank','other'));
-alter table public.loans add column if not exists payout_other text;    -- name of the e-wallet when 'other'
+alter table public.loans add column if not exists payout_other text;    -- bank / e-wallet name when 'other'
 alter table public.loans add column if not exists payout_account text;  -- number to send the loan to
 create index if not exists loans_client_idx on public.loans (client_id);
 create index if not exists loans_release_idx on public.loans (release_date);
@@ -217,8 +217,8 @@ begin
   if coalesce(p ->> 'payout_method', '') not in ('gcash','maya','seabank','other') then
     raise exception 'Please choose where to send your loan.';
   end if;
-  if coalesce(p ->> 'payout_account', '') !~ '^09[0-9]{9}$' then
-    raise exception 'Please enter a valid 11-digit account number.';
+  if coalesce(p ->> 'payout_account', '') !~ '^[0-9]{10,20}$' then
+    raise exception 'Please enter a valid account number.';
   end if;
   if coalesce(trim(p ->> 'full_name'), '') = '' or coalesce(trim(p ->> 'phone'), '') = ''
      or coalesce(trim(p ->> 'address'), '') = '' then
