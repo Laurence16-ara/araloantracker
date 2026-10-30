@@ -111,7 +111,7 @@ export function NewLoanModal({ open, onClose, clientId }) {
   useEffect(() => {
     if (!open) return
     setMode('existing'); setPick(clientId || ''); setSearch(''); setNc({ full_name: '', phone: '', address: '' })
-    setF({ principal: '', interest_rate: settings?.default_rate ?? 20, interest: '', schedule: 'monthly', release_date: todayPH(), sign: 'link' })
+    setF({ principal: '', interest_rate: settings?.default_rate ?? 20, interest: '', schedule: 'semi_monthly', release_date: todayPH(), sign: 'link' })
     setInterestEdited(false); setErr(null); setCreated(null)
   }, [open, clientId, settings])
 

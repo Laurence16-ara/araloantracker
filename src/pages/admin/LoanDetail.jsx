@@ -5,7 +5,7 @@ import { useData } from '../../lib/data.jsx'
 import { peso, fmtDate, SCHEDULES, interestFor, todayPH } from '../../lib/loanMath.js'
 import { Badge, Button, Card, Empty, ErrorNote, Field, Modal, Segmented } from '../../components/ui.jsx'
 import { PaymentModal, SignLinkBox } from '../../components/admin.jsx'
-import ContractView from '../../components/ContractView.jsx'
+import SignedContract from '../../components/SignedContract.jsx'
 import { payoutLabel } from '../../lib/payout.js'
 
 export default function LoanDetail() {
@@ -141,23 +141,10 @@ export default function LoanDetail() {
       <PaymentModal open={pay} onClose={() => setPay(false)} loan={loan} />
       <EditLoanModal open={edit} onClose={() => setEdit(false)} loan={loan} />
       <Modal open={contract} onClose={() => setContract(false)} title="Signed contract" wide>
-        <ContractView text={loan.contract_text} lenderName={settings.lender_name} lenderSignature={settings.lender_signature} borrowerName={c.full_name} signature={loan.signature} signedAt={loan.signed_at} signedName={loan.signed_name} />
-        <div className="no-print mt-3 flex justify-end"><Button variant="secondary" onClick={() => printContract(loan, settings, c)}>Print / Save PDF</Button></div>
+        <SignedContract loan={loan} client={c} settings={settings} />
       </Modal>
     </>
   )
-}
-
-function printContract(loan, settings, c) {
-  const w = window.open('', '_blank')
-  const esc = (t) => String(t || '').replace(/[&<>]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[m])
-  const body = esc(loan.contract_text).split(/\n\s*\n/).map((p) => `<p>${p.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/\n/g, '<br>')}</p>`).join('')
-  w.document.write(`<!doctype html><html><head><title>Loan Agreement #${loan.loan_no} - ${esc(c.full_name)}</title>
-  <style>body{font-family:Georgia,serif;max-width:720px;margin:40px auto;padding:0 24px;font-size:14px;line-height:1.6;color:#111}h1{text-align:center;letter-spacing:2px;font-size:22px}.sig{display:flex;gap:48px;margin-top:48px}.sig div{flex:1}.line{border-top:1px solid #111;padding-top:4px}.img{height:70px;display:flex;align-items:flex-end}img{max-height:70px}small{color:#666}</style></head>
-  <body><h1>LOAN AGREEMENT</h1>${body}<div class="sig"><div><div class="img">${settings.lender_signature ? `<img src="${settings.lender_signature}">` : ''}</div><div class="line"><b>${esc(settings.lender_name)}</b><br><small>Lender</small></div></div>
-  <div><div class="img">${loan.signature ? `<img src="${loan.signature}">` : ''}</div><div class="line"><b>${esc(loan.signed_name || c.full_name)}</b><br><small>Borrower · signed electronically ${loan.signed_at ? new Date(loan.signed_at).toLocaleString('en-PH', { timeZone: 'Asia/Manila' }) : ''}</small></div></div></div>
-  <script>window.onload=()=>window.print()</script></body></html>`)
-  w.document.close()
 }
 
 function Box({ label, value, sub, tone = '' }) {

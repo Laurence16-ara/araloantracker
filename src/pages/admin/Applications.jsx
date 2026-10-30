@@ -7,7 +7,7 @@ import { payoutLabel } from '../../lib/payout.js'
 import { randomToken } from '../../lib/utils.js'
 import { Badge, Button, Card, Empty, ErrorNote, Field, Modal, PageHeader, Segmented } from '../../components/ui.jsx'
 import { PrivateImage, SignLinkBox } from '../../components/admin.jsx'
-import ContractView from '../../components/ContractView.jsx'
+import SignedContract from '../../components/SignedContract.jsx'
 
 export default function Applications() {
   const { loans } = useData()
@@ -33,7 +33,7 @@ function ReleaseCard({ loan }) {
   const c = loan.client
   const isNew = c?.status === 'pending'
   const [releaseDate, setReleaseDate] = useState(todayPH())
-  const [schedule, setSchedule] = useState(loan.schedule || 'monthly')
+  const [schedule, setSchedule] = useState(loan.source === 'online' ? 'semi_monthly' : loan.schedule || 'semi_monthly')
   const [copied, setCopied] = useState(false)
   const plan = schedulePlan({ ...loan, schedule, release_date: releaseDate })
   const [busy, setBusy] = useState(null)
@@ -121,7 +121,7 @@ function ReleaseCard({ loan }) {
       </div>
       <div className="mt-2"><ErrorNote>{err}</ErrorNote></div>
       <Modal open={contract} onClose={() => setContract(false)} title="Signed contract" wide>
-        <ContractView text={loan.contract_text} lenderName={settings.lender_name} lenderSignature={settings.lender_signature} borrowerName={c.full_name} signature={loan.signature} signedAt={loan.signed_at} signedName={loan.signed_name} />
+        <SignedContract loan={loan} client={c} settings={settings} />
       </Modal>
     </Card>
   )
