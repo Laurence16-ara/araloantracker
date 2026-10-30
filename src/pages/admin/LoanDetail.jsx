@@ -71,18 +71,8 @@ export default function LoanDetail() {
         <Box label="Balance" value={peso(s.balance)} sub={s.dueDate ? `due ${fmtDate(s.dueDate)}` : ''} tone={s.isOverdue ? 'text-rust' : 'text-moss'} />
       </div>
 
-      {(s.penaltyAccrued > 0 || loan.penalty_waived || s.penaltyPaid > 0) && (
-        <Card className="mt-3 flex flex-wrap items-center justify-between gap-3 p-4">
-          <div className="text-sm">
-            <div className="font-semibold">Late penalty ({settings.penalty_rate}% per day)</div>
-            <div className="text-ink-soft">
-              {loan.penalty_waived ? 'Waived' : <>Total {peso(s.penaltyAccrued)} · collected {peso(s.penaltyPaid)} · <b className="text-rust">unpaid {peso(s.penaltyBalance)}</b></>}
-            </div>
-          </div>
-          <Button size="sm" variant="secondary" onClick={() => update({ penalty_waived: !loan.penalty_waived })}>
-            {loan.penalty_waived ? 'Charge penalty again' : 'Waive penalty'}
-          </Button>
-        </Card>
+      {s.penaltyPaid > 0 && (
+        <div className="mt-3 rounded-lg bg-paper px-3 py-2 text-sm"><span className="text-ink-soft">Late fees collected:</span> <b className="num">{peso(s.penaltyPaid)}</b></div>
       )}
 
       <div className="mt-5 grid gap-5 lg:grid-cols-2 [&>*]:min-w-0">
@@ -99,7 +89,7 @@ export default function LoanDetail() {
                     <td className="text-right num">{peso(i.paid)}</td>
                     <td>
                       <Badge status={i.status} />
-                      {i.daysLate > 0 && <span className="ml-1.5 text-[11px] text-rust">{i.daysLate}d late{!loan.penalty_waived && i.penalty > 0 ? ` · ${peso(i.penalty)}` : ''}</span>}
+                      {i.daysLate > 0 && <span className="ml-1.5 text-[11px] text-rust">{i.daysLate}d late</span>}
                     </td>
                   </tr>
                 ))}

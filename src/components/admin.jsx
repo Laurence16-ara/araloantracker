@@ -305,12 +305,11 @@ export function PaymentModal({ open, onClose, loan }) {
         <div className="rounded-lg bg-paper p-3 text-sm">
           <div className="flex justify-between"><span className="text-ink-soft">Balance</span><span className="font-bold num">{peso(loan.state.balance)}</span></div>
           {loan.state.nextDue && <div className="flex justify-between"><span className="text-ink-soft">Next due {fmtDate(loan.state.nextDue.due)}</span><span className="num">{peso(loan.state.nextDue.remaining)}</span></div>}
-          {loan.state.penaltyBalance > 0 && <div className="flex justify-between text-rust"><span>Penalty so far</span><span className="num">{peso(loan.state.penaltyBalance)}</span></div>}
         </div>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Amount received" hint="Full or partial"><input className="input font-semibold num" inputMode="decimal" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} /></Field>
           <Field label="Date"><input className="input" type="date" value={f.paid_on} onChange={(e) => setF({ ...f, paid_on: e.target.value })} /></Field>
-          <Field label="Penalty collected" hint="Separate from the balance"><input className="input num" inputMode="decimal" value={f.penalty} onChange={(e) => setF({ ...f, penalty: e.target.value })} placeholder="0" /></Field>
+          <Field label="Late fee collected" hint="Optional. Not part of the balance"><input className="input num" inputMode="decimal" value={f.penalty} onChange={(e) => setF({ ...f, penalty: e.target.value })} placeholder="0" /></Field>
           <Field label="Method">
             <select className="input" value={f.method} onChange={(e) => setF({ ...f, method: e.target.value })}>
               <option value="cash">Cash</option><option value="gcash">GCash</option><option value="bank">Bank</option><option value="other">Other</option>
@@ -322,7 +321,6 @@ export function PaymentModal({ open, onClose, loan }) {
         )}
         <div className="flex flex-wrap gap-2">
           <button className="rounded-full border border-line px-3 py-1 text-xs font-semibold text-ink-soft" onClick={() => setF({ ...f, amount: String(loan.state.balance) })}>Full balance {peso(loan.state.balance)}</button>
-          {loan.state.penaltyBalance > 0 && <button className="rounded-full border border-line px-3 py-1 text-xs font-semibold text-ink-soft" onClick={() => setF({ ...f, penalty: String(loan.state.penaltyBalance) })}>+ penalty {peso(loan.state.penaltyBalance)}</button>}
         </div>
         <Field label="Note (optional)"><input className="input" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} /></Field>
         <ErrorNote>{err}</ErrorNote>

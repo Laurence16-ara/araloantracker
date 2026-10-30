@@ -117,7 +117,6 @@ export default function Dashboard() {
                   </div>
                   <div className="text-right">
                     <div className="font-semibold text-rust num">{peso(l.state.balance)}</div>
-                    {l.state.penaltyBalance > 0 && <div className="text-[11px] text-rust num">+{peso(l.state.penaltyBalance)} penalty</div>}
                   </div>
                 </li>
               ))}
