@@ -105,6 +105,21 @@ export default function Apply() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
+  /** Turns a Supabase function error into something the applicant (and we) can act on. */
+  async function friendlyFunctionError(error) {
+    // The function answered with an error: show its message.
+    try {
+      const body = await error.context?.json?.()
+      if (body?.error) return body.error
+    } catch {
+      /* not JSON */
+    }
+    if (error.name === 'FunctionsFetchError')
+      return "We couldn't reach our application service right now. Please try again in a few minutes, or message us to apply."
+    if (error.name === 'FunctionsRelayError') return 'Our application service is busy. Please try again in a moment.'
+    return error.message || 'Something went wrong. Please try again.'
+  }
+
   async function submit() {
     if (!validate(LAST)) return
     if (!captchaToken) return setSubmitErr('Please complete the security check.')
@@ -117,7 +132,7 @@ export default function Apply() {
       payload.append('idPhoto', await compressImage(idFile), 'id.jpg')
       payload.append('selfie', await compressImage(selfieFile), 'selfie.jpg')
       const { data, error } = await supabase.functions.invoke('submit-application', { body: payload })
-      if (error) throw error
+      if (error) throw new Error(await friendlyFunctionError(error))
       setDone(data)
       if (captchaWidget.current) window.turnstile?.reset?.(captchaWidget.current)
       window.scrollTo({ top: 0 })

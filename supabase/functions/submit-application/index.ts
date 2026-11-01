@@ -1,14 +1,22 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
-const appOrigin = Deno.env.get('APP_ORIGIN')
-const cors = {
-  'Access-Control-Allow-Origin': appOrigin ?? 'null',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-}
+// APP_ORIGIN: the site's address, e.g. https://araloantracker.vercel.app (several allowed, comma-separated).
+// Trailing slashes and spaces are ignored so a small typo in the secret doesn't break the form.
+const allowedOrigins = (Deno.env.get('APP_ORIGIN') ?? '')
+  .split(',')
+  .map((o) => o.trim().replace(/\/+$/, ''))
+  .filter(Boolean)
+const appOrigin = allowedOrigins[0]
 
-function response(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } })
+// Always answer with CORS headers for the caller's origin, so the browser can show our real error
+// message instead of "Failed to send a request". Who may actually submit is checked separately below.
+function corsFor(req: Request) {
+  return {
+    'Access-Control-Allow-Origin': req.headers.get('origin') ?? appOrigin ?? '*',
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    Vary: 'Origin',
+  }
 }
 
 async function sha256(value: string) {
@@ -18,16 +26,20 @@ async function sha256(value: string) {
 }
 
 Deno.serve(async (req) => {
-  if (!appOrigin) return response({ error: 'Application security is not configured.' }, 503)
+  const cors = corsFor(req)
+  const response = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } })
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
+  if (!appOrigin) return response({ error: 'The application form is not set up yet (APP_ORIGIN is missing). Please message us instead.' }, 503)
   if (req.method !== 'POST') return response({ error: 'Method not allowed.' }, 405)
-  if (req.headers.get('origin') !== appOrigin) return response({ error: 'Origin not allowed.' }, 403)
+  const origin = (req.headers.get('origin') ?? '').replace(/\/+$/, '')
+  if (!allowedOrigins.includes(origin)) return response({ error: `This form can only be sent from ${appOrigin}.` }, 403)
   if (Number(req.headers.get('content-length') ?? 0) > 11_000_000) return response({ error: 'Upload is too large.' }, 413)
 
   const url = Deno.env.get('SUPABASE_URL')!
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
   const turnstileSecret = Deno.env.get('TURNSTILE_SECRET_KEY')
-  if (!turnstileSecret) return response({ error: 'Application security is not configured.' }, 503)
+  if (!turnstileSecret) return response({ error: 'The application form is not set up yet (TURNSTILE_SECRET_KEY is missing). Please message us instead.' }, 503)
 
   let form: FormData
   let application: Record<string, unknown>
@@ -54,7 +66,7 @@ Deno.serve(async (req) => {
   verifyForm.set('remoteip', ip)
   const verification = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', { method: 'POST', body: verifyForm })
   const verdict = await verification.json()
-  if (!verdict.success || verdict.hostname !== new URL(appOrigin).hostname) return response({ error: 'Security check expired. Please complete it again.' }, 400)
+  if (!verdict.success || !allowedOrigins.some((o) => new URL(o).hostname === verdict.hostname)) return response({ error: 'Security check expired. Please complete it again.' }, 400)
 
   const supabase = createClient(url, serviceKey, { auth: { persistSession: false } })
   const { data: allowed, error: limitError } = await supabase.rpc('check_application_rate_limit', { p_ip_hash: await sha256(`${turnstileSecret}:${ip}`) })
