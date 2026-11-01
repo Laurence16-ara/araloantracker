@@ -15,13 +15,13 @@ export const DEFAULT_TEMPLATE = `This Loan Agreement ("Agreement") is made and e
 The Lender agrees to provide a loan to the Borrower in the principal amount of **{{principal}}** (the "Principal Amount"). The Principal Amount shall be disbursed to the Borrower on **{{release_date}}**.
 
 **2. Repayment**
-The Borrower agrees to repay the Principal Amount plus interest on or before **{{due_date}}**. The total repayment amount shall be **{{total}}**, payable as follows: **{{payment_terms}}**.
+The Borrower shall repay the total amount of **{{total}}** in the installments listed here: **{{payment_terms}}**. The final installment is due on **{{due_date}}**.
 
 **3. Interest**
 The Principal Amount shall accrue interest of **{{interest}}** ({{interest_rate}}) for a period of **one (1) month**. The interest is included in the total repayment amount of **{{total}}**.
 
 **4. Late Payment**
-Any amount not paid on its due date shall incur a penalty of **{{penalty_rate}} of the unpaid amount for every day of delay** (for example, {{penalty_example}}), until fully paid.
+If an installment is not paid in full by its due date, the outstanding balance of that installment shall incur a penalty of **{{penalty_rate}} per day** until paid. The penalty is calculated on the overdue installment only, not on future installments. For example, {{penalty_example}}.
 
 **5. Separability**
 If any provision of this Agreement is held to be invalid or unenforceable, such invalidity or unenforceability shall not affect the remaining provisions, which shall continue to be in full force and effect.
@@ -38,7 +38,7 @@ export function contractValues({ loan, client, settings, agreementDate }) {
   const each = plan.length ? plan[0].amount : Math.round(total / n)
   let terms
   if (!loan.schedule) {
-    terms = 'within one (1) month, either in one (1) payment, in two (2) payments every 15 days, or in four (4) weekly payments, as set by the Lender upon release of the loan'
+    terms = 'the payment frequency, installment amounts, and due dates specified by the Lender before this Agreement is signed'
   } else if (plan.length) {
     terms = plan.length === 1
       ? `one payment of ${peso(plan[0].amount)} on ${fmtDate(plan[0].due)}`
@@ -70,9 +70,7 @@ export function contractValues({ loan, client, settings, agreementDate }) {
     interest: peso(loan.interest),
     interest_rate: `${Number(loan.interest_rate)}% per month`,
     penalty_rate: `${rate}%`,
-    penalty_example: loan.schedule && n > 1
-      ? `${peso(round2((each * rate) / 100))} per day on a missed ${peso(each)} payment, or ${peso(round2((total * rate) / 100))} per day if the full ${peso(total)} is unpaid`
-      : `${peso(round2((total * rate) / 100))} per day if the full ${peso(total)} is unpaid`,
+    penalty_example: `if a ${peso(each)} installment is overdue, the penalty is ${peso(round2((each * rate) / 100))} per day on its unpaid balance`,
   }
 }
 

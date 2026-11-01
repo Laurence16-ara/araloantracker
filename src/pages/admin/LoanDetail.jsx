@@ -59,7 +59,7 @@ export default function LoanDetail() {
 
       {loan.note && <div className="mb-4 rounded-lg bg-paper px-3 py-2 text-sm text-ink-soft">📝 {loan.note}</div>}
       {loan.payout_method && <div className="mb-4 rounded-lg bg-paper px-3 py-2 text-sm"><span className="text-ink-soft">Loan sent to:</span> <b className="num">{payoutLabel(loan)}</b></div>}
-      {loan.status === 'awaiting_signature' && <div className="mb-4"><SignLinkBox loan={loan} client={c} /></div>}
+      {loan.status === 'awaiting_signature' && loan.sign_token && loan.contract_text && <div className="mb-4"><SignLinkBox loan={loan} client={c} /></div>}
       {loan.status === 'for_release' && (
         <div className="mb-4 rounded-xl border border-amber/30 bg-amber-light px-4 py-3 text-sm">Signed and waiting for release. <Link to="/admin/applications" className="font-semibold underline">Go to Applications</Link></div>
       )}
@@ -153,6 +153,7 @@ function EditLoanModal({ open, onClose, loan }) {
   const [f, setF] = useState({})
   const [err, setErr] = useState(null)
   const [busy, setBusy] = useState(false)
+  const signedTerms = Boolean(loan.signature)
   useEffect(() => {
     if (open) setF({ principal: loan.principal, interest_rate: loan.interest_rate, interest: loan.interest, schedule: loan.schedule, release_date: loan.release_date || '', note: loan.note || '' })
   }, [open, loan])
@@ -169,12 +170,13 @@ function EditLoanModal({ open, onClose, loan }) {
   }
   return (
     <Modal open={open} onClose={onClose} title="Edit loan">
+      {signedTerms && <p className="mb-3 rounded-lg bg-amber-light px-3 py-2 text-sm text-amber">Financial terms, schedule and release date are locked to the signed contract.</p>}
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Loan amount"><input className="input num" value={f.principal ?? ''} onChange={(e) => setF({ ...f, principal: e.target.value, interest: interestFor(e.target.value, f.interest_rate) })} /></Field>
-        <Field label="Release date"><input className="input" type="date" value={f.release_date ?? ''} onChange={set('release_date')} /></Field>
-        <Field label="Interest %"><input className="input num" value={f.interest_rate ?? ''} onChange={(e) => setF({ ...f, interest_rate: e.target.value, interest: interestFor(f.principal, e.target.value) })} /></Field>
-        <Field label="Interest amount"><input className="input num" value={f.interest ?? ''} onChange={set('interest')} /></Field>
-        <div className="col-span-2"><span className="label">Schedule</span><Segmented value={f.schedule} onChange={(v) => setF({ ...f, schedule: v })} options={Object.entries(SCHEDULES).map(([k, s]) => [k, s.label])} /></div>
+        <Field label="Loan amount"><input disabled={signedTerms} className="input num" value={f.principal ?? ''} onChange={(e) => setF({ ...f, principal: e.target.value, interest: interestFor(e.target.value, f.interest_rate) })} /></Field>
+        <Field label="Release date"><input disabled={signedTerms} className="input" type="date" value={f.release_date ?? ''} onChange={set('release_date')} /></Field>
+        <Field label="Interest %"><input disabled={signedTerms} className="input num" value={f.interest_rate ?? ''} onChange={(e) => setF({ ...f, interest_rate: e.target.value, interest: interestFor(f.principal, e.target.value) })} /></Field>
+        <Field label="Interest amount"><input disabled={signedTerms} className="input num" value={f.interest ?? ''} onChange={set('interest')} /></Field>
+        <div className="col-span-2"><span className="label">Schedule</span><Segmented disabled={signedTerms} value={f.schedule} onChange={(v) => setF({ ...f, schedule: v })} options={Object.entries(SCHEDULES).map(([k, s]) => [k, s.label])} /></div>
         <Field label="Note" className="col-span-2"><input className="input" value={f.note ?? ''} onChange={set('note')} /></Field>
       </div>
       <div className="mt-3"><ErrorNote>{err}</ErrorNote></div>

@@ -54,7 +54,7 @@ export default function Settings() {
           <Field label="Lender address"><input className="input" value={f.lender_address || ''} onChange={set('lender_address')} /></Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Default interest (% per month)"><input className="input num" value={f.default_rate ?? ''} onChange={set('default_rate')} /></Field>
-            <Field label="Late penalty (% per day)"><input className="input num" value={f.penalty_rate ?? ''} onChange={set('penalty_rate')} /></Field>
+            <Field label="Late penalty (% per day of overdue installment)"><input className="input num" value={f.penalty_rate ?? ''} onChange={set('penalty_rate')} /></Field>
             <Field label="Online min amount"><input className="input num" value={f.min_amount ?? ''} onChange={set('min_amount')} /></Field>
             <Field label="Online max amount"><input className="input num" value={f.max_amount ?? ''} onChange={set('max_amount')} /></Field>
           </div>

@@ -117,15 +117,16 @@ export function ErrorNote({ children }) {
   return <div className="rounded-lg border border-rust/30 bg-rust-light px-3 py-2 text-sm text-rust">{children}</div>
 }
 
-export function Segmented({ value, onChange, options }) {
+export function Segmented({ value, onChange, options, disabled = false }) {
   return (
     <div className="inline-flex rounded-lg border border-line bg-paper p-0.5">
       {options.map(([v, l]) => (
         <button
           type="button"
           key={v}
+          disabled={disabled}
           onClick={() => onChange(v)}
-          className={cx('rounded-md px-3 py-1.5 text-[13px] font-semibold transition', value === v ? 'bg-card text-ink shadow-card' : 'text-ink-soft hover:text-ink')}
+          className={cx('rounded-md px-3 py-1.5 text-[13px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-60', value === v ? 'bg-card text-ink shadow-card' : 'text-ink-soft hover:text-ink')}
         >
           {l}
         </button>

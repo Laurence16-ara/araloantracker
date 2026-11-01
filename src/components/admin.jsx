@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase.js'
 import { useData } from '../lib/data.jsx'
 import { SCHEDULES, peso, fmtDate, interestFor, round2, schedulePlan, todayPH } from '../lib/loanMath.js'
 import { compressImage, normalizePhone, randomToken, cx } from '../lib/utils.js'
+import { buildContractText } from '../lib/contract.js'
 import { Badge, Button, ErrorNote, Field, Modal, Segmented, Empty } from './ui.jsx'
 
 // ---------------------------------------------------------------- Loan list
@@ -111,7 +112,7 @@ export function NewLoanModal({ open, onClose, clientId }) {
   useEffect(() => {
     if (!open) return
     setMode('existing'); setPick(clientId || ''); setSearch(''); setNc({ full_name: '', phone: '', address: '' })
-    setF({ principal: '', interest_rate: settings?.default_rate ?? 20, interest: '', schedule: 'semi_monthly', release_date: todayPH(), sign: 'link' })
+    setF({ principal: '', interest_rate: settings?.default_rate ?? 20, interest: '', schedule: 'semi_monthly', release_date: todayPH(), sign: 'paper' })
     setInterestEdited(false); setErr(null); setCreated(null)
   }, [open, clientId, settings])
 
@@ -134,6 +135,8 @@ export function NewLoanModal({ open, onClose, clientId }) {
     if (principal <= 0) return setErr('Enter the loan amount.')
     if (mode === 'existing' && !pick) return setErr('Choose a client.')
     if (mode === 'new' && !nc.full_name.trim()) return setErr('Enter the client name.')
+    if (f.sign === 'link' && mode === 'new' && (!nc.phone.trim() || nc.address.trim().length < 8)) return setErr('Add the client phone and complete address before preparing a contract.')
+    if (f.sign === 'link' && mode === 'existing' && (!client?.phone || !client?.address)) return setErr('Add the client phone and complete address before preparing a contract.')
     if (!f.release_date) return setErr('Enter the release date.')
     setBusy(true)
     try {
@@ -155,12 +158,25 @@ export function NewLoanModal({ open, onClose, clientId }) {
         schedule: f.schedule,
         release_date: f.release_date,
         status: viaLink ? 'awaiting_signature' : 'active',
-        sign_token: viaLink ? randomToken() : null,
-        sign_expires_at: viaLink ? new Date(Date.now() + 48 * 3600 * 1000).toISOString() : null,
+        sign_token: null,
+        sign_expires_at: null,
         source: 'manual',
       }
       const { data: loan, error } = await supabase.from('loans').insert(row).select().single()
       if (error) throw error
+      if (viaLink) {
+        const contractText = buildContractText({ loan, client: cl, settings })
+        const { error: prepareError } = await supabase.rpc('prepare_sign_request', {
+          p_loan_id: loan.id, p_schedule: f.schedule, p_release_date: f.release_date,
+          p_contract_text: contractText, p_token: randomToken(),
+        })
+        if (prepareError) throw prepareError
+        loan.schedule = f.schedule
+        loan.release_date = f.release_date
+        const { data: prepared, error: fetchError } = await supabase.from('loans').select('*').eq('id', loan.id).single()
+        if (fetchError) throw fetchError
+        Object.assign(loan, prepared)
+      }
       await reload()
       if (viaLink) setCreated({ loan, client: cl })
       else { onClose(); nav(`/admin/loans/${loan.id}`) }

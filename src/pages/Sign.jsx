@@ -1,9 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase.js'
 import { peso, schedulePlan, fmtDate, round2, SCHEDULES } from '../lib/loanMath.js'
-import { buildContractText } from '../lib/contract.js'
-import { normalizePhone, validPhone } from '../lib/utils.js'
 import PublicShell from '../components/PublicShell.jsx'
 import SignaturePad from '../components/SignaturePad.jsx'
 import ContractView from '../components/ContractView.jsx'
@@ -25,7 +23,6 @@ export default function Sign() {
   const [saving, setSaving] = useState(false)
   const [saveErr, setSaveErr] = useState(null)
   const [done, setDone] = useState(false)
-  const [extra, setExtra] = useState({ address: '', phone: '' })
 
   useEffect(() => {
     supabase.rpc('get_sign_request', { p_token: token }).then(({ data, error }) => {
@@ -35,24 +32,16 @@ export default function Sign() {
     })
   }, [token])
 
-  const text = useMemo(() => {
-    if (!req) return ''
-    return buildContractText({
-      loan: req,
-      client: { full_name: req.borrower_name, address: req.borrower_address || extra.address, phone: req.borrower_phone || normalizePhone(extra.phone) },
-      settings: req,
-    })
-  }, [req, extra])
+  const text = req?.contract_text || ''
 
   async function submit() {
     setSaveErr(null)
     if (!agree) return setSaveErr('Please confirm that you agree to the contract.')
     if (!signature) return setSaveErr('Please sign in the box.')
     if (name.trim().length < 3) return setSaveErr('Please type your full name.')
-    if (!req.borrower_address && extra.address.trim().length < 8) return setSaveErr('Please enter your complete address.')
-    if (!req.borrower_phone && !validPhone(extra.phone)) return setSaveErr('Please enter your 11-digit mobile number.')
+    if (!text) return setSaveErr('This contract is incomplete. Please ask the lender to prepare a new signing link.')
     setSaving(true)
-    const { error } = await supabase.rpc('sign_loan', { p_token: token, p_signature: signature, p_signed_name: name, p_contract_text: text, p_address: extra.address || null, p_phone: normalizePhone(extra.phone) || null })
+    const { error } = await supabase.rpc('sign_loan', { p_token: token, p_signature: signature, p_signed_name: name })
     setSaving(false)
     if (error) return setSaveErr(error.message)
     setDone(true)
@@ -100,14 +89,6 @@ export default function Sign() {
           )) : <div className="text-ink-soft">Dates start from the release date.</div>}
         </div>
       </Card>
-
-      {(!req.borrower_address || !req.borrower_phone) && (
-        <Card className="mb-4 space-y-3 p-4">
-          <div className="text-sm font-semibold">Please complete your details for the contract</div>
-          {!req.borrower_address && <Field label="Complete address"><input className="input" value={extra.address} onChange={(e) => setExtra({ ...extra, address: e.target.value })} placeholder="House no., street, barangay, city" /></Field>}
-          {!req.borrower_phone && <Field label="Mobile number"><input className="input" inputMode="tel" value={extra.phone} onChange={(e) => setExtra({ ...extra, phone: e.target.value })} placeholder="09XXXXXXXXX" /></Field>}
-        </Card>
-      )}
 
       <ContractView text={text} lenderName={req.lender_name} lenderSignature={req.lender_signature} borrowerName={req.borrower_name} />
 

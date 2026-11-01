@@ -30,8 +30,8 @@ $$;
 -- ---------------------------------------------------------------------
 create table if not exists public.settings (
   id int primary key default 1 check (id = 1),
-  lender_name text not null default 'Ara Marylle Oliver',
-  lender_address text not null default 'Blk 16 Riviera Heights Brgy. Labas, Santa Rosa, Laguna',
+  lender_name text not null default 'Ara Loan Tracker',
+  lender_address text not null default '',
   default_rate numeric(5,2) not null default 20,
   penalty_rate numeric(5,2) not null default 3,
   apply_open boolean not null default true,
@@ -42,6 +42,15 @@ create table if not exists public.settings (
 );
 alter table public.settings add column if not exists lender_signature text;  -- PNG data URL
 insert into public.settings (id) values (1) on conflict (id) do nothing;
+alter table public.settings alter column lender_name set default 'Ara Loan Tracker';
+alter table public.settings alter column lender_address set default '';
+update public.settings
+set contract_template = replace(
+  contract_template,
+  'Any amount not paid on its due date shall incur a penalty of **{{penalty_rate}} of the unpaid amount for every day of delay** (for example, {{penalty_example}}), until fully paid.',
+  'If an installment is not paid in full by its due date, the outstanding balance of that installment shall incur a penalty of **{{penalty_rate}} per day** until paid. The penalty is calculated on the overdue installment only, not on future installments. For example, {{penalty_example}}.'
+)
+where contract_template like '%Any amount not paid on its due date shall incur a penalty%';
 
 -- ---------------------------------------------------------------------
 -- 3. Clients
@@ -87,6 +96,8 @@ create table if not exists public.loans (
   sign_token text unique,
   sign_expires_at timestamptz,
   signature text,                  -- PNG data URL
+  lender_name_snapshot text,
+  lender_signature_snapshot text,
   signed_name text,
   signed_at timestamptz,
   contract_text text,              -- the exact contract the client signed
@@ -99,6 +110,8 @@ alter table public.loans add column if not exists payout_method text
   check (payout_method in ('gcash','maya','seabank','other'));
 alter table public.loans add column if not exists payout_other text;    -- bank / e-wallet name when 'other'
 alter table public.loans add column if not exists payout_account text;  -- number to send the loan to
+alter table public.loans add column if not exists lender_name_snapshot text;
+alter table public.loans add column if not exists lender_signature_snapshot text;
 create index if not exists loans_client_idx on public.loans (client_id);
 create index if not exists loans_release_idx on public.loans (release_date);
 
@@ -162,7 +175,7 @@ drop policy if exists kyc_admin_write  on storage.objects;
 drop policy if exists kyc_admin_delete on storage.objects;
 
 create policy kyc_public_upload on storage.objects for insert to anon, authenticated
-  with check (bucket_id = 'kyc' and (storage.foldername(name))[1] in ('applications','clients'));
+  with check (bucket_id = 'kyc' and public.is_admin() and (storage.foldername(name))[1] in ('applications','clients'));
 create policy kyc_admin_read on storage.objects for select to authenticated
   using (bucket_id = 'kyc' and public.is_admin());
 create policy kyc_admin_write on storage.objects for update to authenticated
@@ -182,14 +195,12 @@ set search_path = public
 as $$
   select json_build_object(
     'lender_name', lender_name,
-    'lender_address', lender_address,
     'default_rate', default_rate,
     'penalty_rate', penalty_rate,
     'apply_open', apply_open,
     'min_amount', min_amount,
     'max_amount', max_amount,
-    'contract_template', contract_template,
-    'lender_signature', lender_signature
+    'contract_template', contract_template
   ) from public.settings where id = 1;
 $$;
 
@@ -230,13 +241,6 @@ begin
      or coalesce(p ->> 'selfie_path', '') not like 'applications/%' then
     raise exception 'Valid ID and selfie are required.';
   end if;
-  if coalesce(p ->> 'signature', '') not like 'data:image/png;base64,%'
-     or length(p ->> 'signature') > 400000 then
-    raise exception 'Signature is required.';
-  end if;
-  if length(coalesce(p ->> 'contract_text','')) > 20000 then
-    raise exception 'Contract too long.';
-  end if;
 
   insert into public.clients (full_name, phone, address,
                               id_type, id_photo_path, selfie_path, status, source)
@@ -246,11 +250,10 @@ begin
   returning id into v_client;
 
   insert into public.loans (client_id, principal, interest_rate, interest, schedule,
-                            status, signature, signed_name, signed_at, contract_text, source,
+                            status, source,
                             payout_method, payout_other, payout_account)
   values (v_client, v_amount, s.default_rate, round(v_amount * s.default_rate / 100, 2),
-          v_schedule, 'for_release', p ->> 'signature', left(trim(p ->> 'full_name'), 120),
-          now(), p ->> 'contract_text', 'online',
+          v_schedule, 'awaiting_signature', 'online',
           p ->> 'payout_method', left(trim(p ->> 'payout_other'), 60), p ->> 'payout_account')
   returning * into v_loan;
 
@@ -290,11 +293,11 @@ begin
     'interest_rate', l.interest_rate,
     'schedule', l.schedule,
     'release_date', l.release_date,
-    'lender_name', s.lender_name,
+    'lender_name', coalesce(l.lender_name_snapshot, s.lender_name),
     'lender_address', s.lender_address,
     'penalty_rate', s.penalty_rate,
-    'contract_template', s.contract_template,
-    'lender_signature', s.lender_signature
+    'contract_text', l.contract_text,
+    'lender_signature', coalesce(l.lender_signature_snapshot, s.lender_signature)
   );
 end;
 $$;
@@ -302,8 +305,8 @@ $$;
 -- Client signs the loan (from /sign/:token).
 -- Address/phone are saved only if the client record doesn't have them yet.
 drop function if exists public.sign_loan(text, text, text, text);
-create or replace function public.sign_loan(p_token text, p_signature text, p_signed_name text, p_contract_text text,
-                                            p_address text default null, p_phone text default null)
+drop function if exists public.sign_loan(text, text, text, text, text, text);
+create or replace function public.sign_loan(p_token text, p_signature text, p_signed_name text)
 returns json
 language plpgsql security definer
 set search_path = public
@@ -318,6 +321,9 @@ begin
   if l.sign_expires_at is not null and l.sign_expires_at < now() then
     raise exception 'This signing link has expired. Please ask for a new one.';
   end if;
+  if coalesce(l.contract_text, '') = '' then
+    raise exception 'This contract has not been prepared yet. Please ask the lender for a new link.';
+  end if;
   if coalesce(p_signature, '') not like 'data:image/png;base64,%' or length(p_signature) > 400000 then
     raise exception 'Signature is required.';
   end if;
@@ -325,16 +331,10 @@ begin
     raise exception 'Please type your full name.';
   end if;
 
-  update public.clients
-     set address = coalesce(nullif(trim(address), ''), left(nullif(trim(p_address), ''), 300)),
-         phone   = coalesce(nullif(trim(phone), ''), left(nullif(trim(p_phone), ''), 20))
-   where id = l.client_id;
-
   update public.loans
      set signature = p_signature,
          signed_name = left(trim(p_signed_name), 120),
          signed_at = now(),
-         contract_text = left(p_contract_text, 20000),
          status = 'for_release',
          sign_token = null,
          sign_expires_at = null
@@ -346,13 +346,95 @@ $$;
 
 revoke all on function public.submit_application(jsonb) from public;
 revoke all on function public.get_sign_request(text) from public;
-revoke all on function public.sign_loan(text, text, text, text, text, text) from public;
+revoke all on function public.sign_loan(text, text, text) from public;
 revoke all on function public.public_settings() from public;
-grant execute on function public.submit_application(jsonb) to anon, authenticated;
+revoke all on function public.submit_application(jsonb) from anon, authenticated;
+grant execute on function public.submit_application(jsonb) to service_role;
 grant execute on function public.get_sign_request(text) to anon, authenticated;
-grant execute on function public.sign_loan(text, text, text, text, text, text) to anon, authenticated;
+grant execute on function public.sign_loan(text, text, text) to anon, authenticated;
 grant execute on function public.public_settings() to anon, authenticated;
 grant execute on function public.is_admin() to authenticated;
+
+-- Final contract terms are chosen by the lender before the borrower signs.
+create or replace function public.prepare_sign_request(
+  p_loan_id uuid, p_schedule text, p_release_date date, p_contract_text text, p_token text
+) returns void language plpgsql security definer set search_path = public as $$
+declare s public.settings;
+begin
+  if not public.is_admin() then raise exception 'Admin access required.'; end if;
+  if p_schedule not in ('monthly','semi_monthly','weekly') or p_release_date is null
+     or length(coalesce(p_contract_text,'')) < 50 or length(p_contract_text) > 20000
+     or length(coalesce(p_token,'')) < 24 then raise exception 'Contract details are incomplete.'; end if;
+  select * into s from public.settings where id=1;
+  update public.loans set schedule=p_schedule, release_date=p_release_date,
+    contract_text=p_contract_text, sign_token=p_token,
+    sign_expires_at=now()+interval '48 hours', lender_name_snapshot=s.lender_name,
+    lender_signature_snapshot=s.lender_signature
+  where id=p_loan_id and status='awaiting_signature';
+  if not found then raise exception 'Loan is no longer waiting for a signature.'; end if;
+end; $$;
+
+create or replace function public.release_loan(p_loan_id uuid, p_release_date date, p_schedule text)
+returns void language plpgsql security definer set search_path = public as $$
+declare l public.loans;
+begin
+  if not public.is_admin() then raise exception 'Admin access required.'; end if;
+  select * into l from public.loans where id=p_loan_id for update;
+  if not found or l.status <> 'for_release' then raise exception 'Loan is not ready for release.'; end if;
+  if l.signature is null or coalesce(l.contract_text, '') = '' then
+    raise exception 'A prepared and signed contract is required before release.';
+  end if;
+  if l.signature is not null and (l.schedule <> p_schedule or l.release_date <> p_release_date) then
+    raise exception 'Signed contract terms cannot be changed.';
+  end if;
+  update public.loans set status='active', release_date=p_release_date, schedule=p_schedule where id=l.id;
+  update public.clients set status='approved' where id=l.client_id and status='pending';
+end; $$;
+
+create or replace function public.lock_signed_contract_terms()
+returns trigger language plpgsql as $$
+begin
+  if old.signature is not null and (new.principal is distinct from old.principal
+    or new.interest is distinct from old.interest or new.interest_rate is distinct from old.interest_rate
+    or new.schedule is distinct from old.schedule or new.release_date is distinct from old.release_date
+    or new.contract_text is distinct from old.contract_text
+    or new.lender_name_snapshot is distinct from old.lender_name_snapshot
+    or new.lender_signature_snapshot is distinct from old.lender_signature_snapshot) then
+    raise exception 'Signed contract terms are locked.';
+  end if;
+  return new;
+end; $$;
+drop trigger if exists lock_signed_contract_terms on public.loans;
+create trigger lock_signed_contract_terms before update on public.loans
+for each row execute function public.lock_signed_contract_terms();
+
+create schema if not exists private;
+revoke all on schema private from public, anon, authenticated;
+create table if not exists private.application_attempts(ip_hash text not null, attempted_at timestamptz not null default now());
+revoke all on private.application_attempts from public, anon, authenticated;
+create or replace function public.check_application_rate_limit(p_ip_hash text)
+returns boolean language plpgsql security definer set search_path = public, private as $$
+declare n integer;
+begin
+  perform pg_advisory_xact_lock(hashtext(p_ip_hash)::bigint);
+  delete from private.application_attempts where attempted_at < now()-interval '1 hour';
+  select count(*) into n from private.application_attempts where ip_hash=p_ip_hash;
+  if n >= 3 then return false; end if;
+  insert into private.application_attempts(ip_hash) values(p_ip_hash);
+  return true;
+end; $$;
+revoke all on function public.check_application_rate_limit(text) from public, anon, authenticated;
+grant execute on function public.check_application_rate_limit(text) to service_role;
+revoke all on function public.prepare_sign_request(uuid,text,date,text,text) from public, anon;
+grant execute on function public.prepare_sign_request(uuid,text,date,text,text) to authenticated;
+revoke all on function public.release_loan(uuid,date,text) from public, anon;
+grant execute on function public.release_loan(uuid,date,text) to authenticated;
+
+-- Prior online applications were signed before the lender set exact terms.
+-- Require those applicants to receive a corrected contract and sign again.
+update public.loans set status='awaiting_signature', signature=null, signed_name=null,
+  signed_at=null, contract_text=null, sign_token=null, sign_expires_at=null
+where source='online' and status='for_release' and release_date is null;
 
 -- ---------------------------------------------------------------------
 -- 9. Add the admin accounts (change the emails, then run)

@@ -5,6 +5,7 @@ import { useData } from '../../lib/data.jsx'
 import { peso, fmtDate, SCHEDULES, round2, todayPH, schedulePlan } from '../../lib/loanMath.js'
 import { payoutLabel } from '../../lib/payout.js'
 import { randomToken } from '../../lib/utils.js'
+import { buildContractText } from '../../lib/contract.js'
 import { Badge, Button, Card, Empty, ErrorNote, Field, Modal, PageHeader, Segmented } from '../../components/ui.jsx'
 import { PrivateImage, SignLinkBox } from '../../components/admin.jsx'
 import SignedContract, { CopyContractImageButton } from '../../components/SignedContract.jsx'
@@ -32,8 +33,9 @@ function ReleaseCard({ loan }) {
   const { reload, loansByClient, settings } = useData()
   const c = loan.client
   const isNew = c?.status === 'pending'
-  const [releaseDate, setReleaseDate] = useState(todayPH())
-  const [schedule, setSchedule] = useState(loan.source === 'online' ? 'semi_monthly' : loan.schedule || 'semi_monthly')
+  const [releaseDate, setReleaseDate] = useState(loan.release_date || todayPH())
+  const [schedule, setSchedule] = useState(loan.schedule || 'semi_monthly')
+  const signedTerms = Boolean(loan.signature)
   const [copied, setCopied] = useState(false)
   const plan = schedulePlan({ ...loan, schedule, release_date: releaseDate })
   const [busy, setBusy] = useState(null)
@@ -44,8 +46,7 @@ function ReleaseCard({ loan }) {
 
   async function release() {
     setBusy('release'); setErr(null)
-    const { error } = await supabase.from('loans').update({ status: 'active', release_date: releaseDate, schedule }).eq('id', loan.id)
-    if (!error && isNew) await supabase.from('clients').update({ status: 'approved' }).eq('id', c.id)
+    const { error } = await supabase.rpc('release_loan', { p_loan_id: loan.id, p_release_date: releaseDate, p_schedule: schedule })
     setBusy(null)
     if (error) return setErr(error.message)
     reload()
@@ -107,14 +108,14 @@ function ReleaseCard({ loan }) {
 
       <div className="mt-4 border-t border-line pt-4">
         <span className="label">Payment schedule</span>
-        <Segmented value={schedule} onChange={setSchedule} options={Object.entries(SCHEDULES).map(([k, x]) => [k, x.label])} />
+        <Segmented value={schedule} onChange={setSchedule} disabled={signedTerms} options={Object.entries(SCHEDULES).map(([k, x]) => [k, x.label])} />
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-ink-soft">
           {plan.map((p) => <span key={p.n} className="num">{fmtDate(p.due, { month: 'short', day: 'numeric' })}: <b className="text-ink">{peso(p.amount)}</b></span>)}
         </div>
       </div>
 
       <div className="mt-4 flex flex-wrap items-end gap-3">
-        <Field label="Release date" className="w-40"><input className="input" type="date" value={releaseDate} onChange={(e) => setReleaseDate(e.target.value)} /></Field>
+        <Field label="Release date" className="w-40"><input className="input" type="date" value={releaseDate} disabled={signedTerms} onChange={(e) => setReleaseDate(e.target.value)} /></Field>
         <Button onClick={release} loading={busy === 'release'}>Release loan</Button>
         <Button variant="secondary" onClick={() => setContract(true)}>View contract</Button>
         <CopyContractImageButton loan={loan} client={c} settings={settings} size="md" />
@@ -133,18 +134,25 @@ function Info({ k, v }) {
 }
 
 function WaitingCard({ loan }) {
-  const { reload } = useData()
+  const { reload, settings } = useData()
   const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState(null)
+  const [schedule, setSchedule] = useState(loan.schedule || 'semi_monthly')
+  const [releaseDate, setReleaseDate] = useState(loan.release_date || todayPH())
   const expired = loan.sign_expires_at && new Date(loan.sign_expires_at) < new Date()
-  async function renew() {
-    setBusy(true)
-    await supabase.from('loans').update({ sign_token: randomToken(), sign_expires_at: new Date(Date.now() + 48 * 3600 * 1000).toISOString() }).eq('id', loan.id)
-    setBusy(false); reload()
+  const ready = loan.sign_token && loan.contract_text && !expired
+  async function prepare() {
+    setBusy(true); setErr(null)
+    const contractText = buildContractText({ loan: { ...loan, schedule, release_date: releaseDate }, client: loan.client, settings })
+    const { error } = await supabase.rpc('prepare_sign_request', { p_loan_id: loan.id, p_schedule: schedule, p_release_date: releaseDate, p_contract_text: contractText, p_token: randomToken() })
+    setBusy(false)
+    if (error) return setErr(error.message)
+    reload()
   }
   async function cancel() {
     if (!confirm('Cancel this loan?')) return
-    await supabase.from('loans').update({ status: 'cancelled', sign_token: null }).eq('id', loan.id)
-    reload()
+    const { error } = await supabase.from('loans').update({ status: 'cancelled', sign_token: null }).eq('id', loan.id)
+    if (error) setErr(error.message); else reload()
   }
   return (
     <Card className="p-4 sm:p-5">
@@ -155,9 +163,16 @@ function WaitingCard({ loan }) {
         </div>
         {expired && <Badge status="overdue">Link expired</Badge>}
       </div>
-      {expired ? <p className="text-sm text-ink-soft">This link has expired.</p> : <SignLinkBox loan={loan} client={loan.client} />}
+      <p className="mb-3 text-sm text-ink-soft">Choose the final terms first. The applicant signs this exact schedule and release date before the loan can be released.</p>
+      <div className="mb-3 grid gap-3 sm:grid-cols-2">
+        <Field label="Payment schedule"><Segmented value={schedule} onChange={setSchedule} options={Object.entries(SCHEDULES).map(([k, x]) => [k, x.label])} /></Field>
+        <Field label="Release date"><input className="input" type="date" value={releaseDate} onChange={(e) => setReleaseDate(e.target.value)} /></Field>
+      </div>
+      {ready && <SignLinkBox loan={loan} client={loan.client} />}
+      {expired && <p className="text-sm text-ink-soft">The previous link expired; preparing again will issue a new 48-hour link.</p>}
+      <ErrorNote>{err}</ErrorNote>
       <div className="mt-3 flex gap-2">
-        <Button size="sm" variant="secondary" onClick={renew} loading={busy}>{expired ? 'Make new link' : 'Renew link (48h)'}</Button>
+        <Button size="sm" variant="secondary" onClick={prepare} loading={busy}>{ready ? 'Update contract and link' : 'Prepare contract and issue link'}</Button>
         <Button size="sm" variant="danger" onClick={cancel}>Cancel loan</Button>
       </div>
     </Card>

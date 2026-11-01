@@ -1,12 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase.js'
 import { peso, interestFor, round2 } from '../lib/loanMath.js'
 import { PAYOUT_METHODS } from '../lib/payout.js'
-import { buildContractText } from '../lib/contract.js'
-import { compressImage, normalizePhone, validPhone, uuid, cx } from '../lib/utils.js'
+import { compressImage, normalizePhone, validPhone, cx } from '../lib/utils.js'
 import PublicShell from '../components/PublicShell.jsx'
-import SignaturePad from '../components/SignaturePad.jsx'
-import ContractView from '../components/ContractView.jsx'
 import { Button, Card, ErrorNote, Field, Spinner } from '../components/ui.jsx'
 import { IdCardArt, SelfieArt } from '../components/IdIllustrations.jsx'
 
@@ -14,7 +11,7 @@ const ID_TYPES = [
   'PhilSys National ID', "Driver's License", 'UMID', 'SSS ID', 'Passport', 'PRC ID',
   'Postal ID', "Voter's ID", 'PhilHealth ID', 'TIN ID', 'Other government ID',
 ]
-const STEPS = ['Loan amount', 'Your details', 'Valid ID', 'Selfie with ID', 'Where to send', 'Sign contract']
+const STEPS = ['Loan amount', 'Your details', 'Valid ID', 'Selfie with ID', 'Where to send', 'Review']
 const LAST = STEPS.length - 1
 
 export default function Apply() {
@@ -24,16 +21,50 @@ export default function Apply() {
   const [f, setF] = useState({ full_name: '', phone: '', address: '', id_type: ID_TYPES[0], principal: '', payout_method: 'gcash', payout_other: '', use_my_number: true, payout_account: '' })
   const [idFile, setIdFile] = useState(null)
   const [selfieFile, setSelfieFile] = useState(null)
-  const [signature, setSignature] = useState(null)
-  const [agree, setAgree] = useState(false)
+  const [captchaToken, setCaptchaToken] = useState('')
   const [errors, setErrors] = useState({})
   const [submitting, setSubmitting] = useState(false)
   const [submitErr, setSubmitErr] = useState(null)
   const [done, setDone] = useState(null)
+  const captchaRef = useRef(null)
+  const captchaWidget = useRef(null)
 
   useEffect(() => {
     supabase.rpc('public_settings').then(({ data, error }) => (error ? setLoadErr(error.message) : setSettings(data)))
   }, [])
+
+  useEffect(() => {
+    if (!import.meta.env.VITE_TURNSTILE_SITE_KEY || document.querySelector('script[data-turnstile]')) return
+    const script = document.createElement('script')
+    script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'
+    script.async = true
+    script.defer = true
+    script.dataset.turnstile = 'true'
+    document.head.appendChild(script)
+    return undefined
+  }, [])
+
+  useEffect(() => {
+    if (step !== LAST || !import.meta.env.VITE_TURNSTILE_SITE_KEY) return
+    let cancelled = false
+    const render = () => {
+      if (cancelled || !captchaRef.current || !window.turnstile || captchaWidget.current) return
+      captchaWidget.current = window.turnstile.render(captchaRef.current, {
+        sitekey: import.meta.env.VITE_TURNSTILE_SITE_KEY,
+        callback: (token) => setCaptchaToken(token),
+        'expired-callback': () => setCaptchaToken(''),
+        'error-callback': () => setCaptchaToken(''),
+      })
+    }
+    render()
+    const timer = window.setInterval(render, 300)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+      if (captchaWidget.current) window.turnstile?.remove?.(captchaWidget.current)
+      captchaWidget.current = null
+    }
+  }, [step])
 
   const set = (k) => (e) => setF((s) => ({ ...s, [k]: e.target.value }))
   const amount = Number(f.principal) || 0
@@ -41,10 +72,6 @@ export default function Apply() {
     const rate = settings?.default_rate ?? 20
     return { principal: amount, interest_rate: rate, interest: interestFor(amount, rate), schedule: null, release_date: null }
   }, [amount, settings])
-  const contractText = useMemo(
-    () => (settings ? buildContractText({ loan, client: { ...f, phone: normalizePhone(f.phone) }, settings }) : ''),
-    [loan, f, settings],
-  )
 
   const phoneWallet = f.payout_method === 'gcash' || f.payout_method === 'maya'
   const payoutNumber = f.use_my_number ? normalizePhone(f.phone) : String(f.payout_account).replace(/\D/g, '')
@@ -69,10 +96,6 @@ export default function Apply() {
         else if (!phoneWallet && !/^\d{10,20}$/.test(payoutNumber)) e.payout_account = 'Enter your account number (numbers only).'
       }
     }
-    if (s === LAST) {
-      if (!agree) e.agree = 'Please confirm that you agree to the contract.'
-      if (!signature) e.signature = 'Please sign above.'
-    }
     setErrors(e)
     return !Object.keys(e).length
   }
@@ -84,28 +107,25 @@ export default function Apply() {
 
   async function submit() {
     if (!validate(LAST)) return
+    if (!captchaToken) return setSubmitErr('Please complete the security check.')
     setSubmitting(true)
     setSubmitErr(null)
     try {
-      const key = uuid()
-      const up = async (file, name) => {
-        const blob = await compressImage(file)
-        const path = `applications/${key}-${name}.jpg`
-        const { error } = await supabase.storage.from('kyc').upload(path, blob, { contentType: 'image/jpeg' })
-        if (error) throw new Error('Photo upload failed: ' + error.message)
-        return path
-      }
-      const id_photo_path = await up(idFile, 'id')
-      const selfie_path = await up(selfieFile, 'selfie')
-      const { data, error } = await supabase.rpc('submit_application', {
-        p: { full_name: f.full_name, address: f.address, id_type: f.id_type, phone: normalizePhone(f.phone), principal: amount, payout_method: f.payout_method, payout_other: f.payout_method === 'other' ? f.payout_other.trim() : null, payout_account: payoutNumber, id_photo_path, selfie_path, signature, contract_text: contractText },
-      })
+      const payload = new FormData()
+      payload.append('captchaToken', captchaToken)
+      payload.append('application', JSON.stringify({ full_name: f.full_name, address: f.address, id_type: f.id_type, phone: normalizePhone(f.phone), principal: amount, payout_method: f.payout_method, payout_other: f.payout_method === 'other' ? f.payout_other.trim() : null, payout_account: payoutNumber }))
+      payload.append('idPhoto', await compressImage(idFile), 'id.jpg')
+      payload.append('selfie', await compressImage(selfieFile), 'selfie.jpg')
+      const { data, error } = await supabase.functions.invoke('submit-application', { body: payload })
       if (error) throw error
       setDone(data)
+      if (captchaWidget.current) window.turnstile?.reset?.(captchaWidget.current)
       window.scrollTo({ top: 0 })
     } catch (e) {
       setSubmitErr(e.message || 'Something went wrong. Please try again.')
     } finally {
+      setCaptchaToken('')
+      if (captchaWidget.current) window.turnstile?.reset?.(captchaWidget.current)
       setSubmitting(false)
     }
   }
@@ -128,7 +148,7 @@ export default function Apply() {
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-moss-light text-2xl text-moss">✓</div>
           <h1 className="font-serif text-2xl font-semibold">Application sent</h1>
           <p className="mt-2 text-ink-soft">
-            Thank you, {f.full_name.split(' ')[0]}! We'll review your application and message you once it's approved.
+            Thank you, {f.full_name.split(' ')[0]}! We'll review your application, prepare the final payment schedule and release date, then send you a contract link to read and sign before release.
           </p>
           <div className="mt-5 inline-block rounded-lg bg-paper px-4 py-2 text-sm">
             Reference no. <span className="font-bold num">#{done.loan_no}</span>
@@ -252,19 +272,13 @@ export default function Apply() {
 
       {step === LAST && (
         <div className="space-y-4">
-          <p className="text-sm text-ink-soft">Please read the contract carefully, then sign below.</p>
-          <ContractView text={contractText} lenderName={settings.lender_name} lenderSignature={settings.lender_signature} borrowerName={f.full_name} />
-          <Card className="space-y-4 p-5">
-            <label className="flex items-start gap-3 text-sm">
-              <input type="checkbox" className="mt-0.5 h-5 w-5 accent-moss" checked={agree} onChange={(e) => setAgree(e.target.checked)} />
-              <span>I, <strong>{f.full_name}</strong>, have read and agree to this Loan Agreement, and confirm that the information and ID I gave are true.</span>
-            </label>
-            {errors.agree && <ErrorNote>{errors.agree}</ErrorNote>}
-            <div>
-              <span className="label">Your signature</span>
-              <SignaturePad onChange={setSignature} />
-              {errors.signature && <p className="text-xs font-medium text-rust">{errors.signature}</p>}
-            </div>
+          <Card className="space-y-3 p-5">
+            <StepTitle>Review your application</StepTitle>
+            <Row k="Requested amount" v={peso(amount)} />
+            <Row k="Estimated interest (1 month)" v={peso(loan.interest)} />
+            <Row k="Payout method" v={PAYOUT_METHODS.find(([key]) => key === f.payout_method)?.[1] || f.payout_method} />
+            <p className="border-t border-line pt-3 text-sm text-ink-soft">This is an application, not the final loan agreement. If approved, the lender will set the payment schedule and release date, then send you the exact contract to review and sign before money is released.</p>
+            <div className="pt-2">{!import.meta.env.VITE_TURNSTILE_SITE_KEY ? <ErrorNote>Application security check is not configured yet.</ErrorNote> : <div ref={captchaRef} />}</div>
             <ErrorNote>{submitErr}</ErrorNote>
           </Card>
         </div>
@@ -277,7 +291,7 @@ export default function Apply() {
         {step < LAST ? (
           <Button size="lg" className="flex-1" onClick={next}>Continue</Button>
         ) : (
-          <Button size="lg" className="flex-1" onClick={submit} loading={submitting}>Sign and submit</Button>
+          <Button size="lg" className="flex-1" onClick={submit} loading={submitting}>Submit application</Button>
         )}
       </div>
     </PublicShell>
