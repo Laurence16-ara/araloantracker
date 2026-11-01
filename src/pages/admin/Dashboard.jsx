@@ -41,7 +41,8 @@ export default function Dashboard() {
       lentCount: thisMonth.length,
       collected, collectedInterest, penalties,
       toRelease: loans.filter((l) => l.status === 'for_release').length,
-      awaiting: loans.filter((l) => l.status === 'awaiting_signature').length,
+      awaiting: loans.filter((l) => l.status === 'awaiting_signature' && l.sign_token).length,
+      newApps: loans.filter((l) => l.status === 'awaiting_signature' && !l.sign_token).length,
     }
   }, [loans, today])
 
@@ -52,6 +53,16 @@ export default function Dashboard() {
         sub={fmtDate(today, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
         actions={<Button onClick={() => setNewLoan(true)}>+ New loan</Button>}
       />
+
+      {d.newApps > 0 && (
+        <Link to="/admin/applications" className="mb-3 flex items-center justify-between rounded-xl border border-rust/30 bg-rust-light px-4 py-3 text-sm">
+          <span className="flex items-center gap-2.5">
+            <span className="flex h-6 min-w-[24px] items-center justify-center rounded-full bg-rust px-1.5 text-xs font-bold text-white">{d.newApps}</span>
+            <b>New application{d.newApps > 1 ? 's' : ''} to review</b>
+          </span>
+          <span className="font-semibold text-rust">Review →</span>
+        </Link>
+      )}
 
       {(d.toRelease > 0 || d.awaiting > 0) && (
         <Link to="/admin/applications" className="mb-4 flex items-center justify-between rounded-xl border border-amber/30 bg-amber-light px-4 py-3 text-sm">

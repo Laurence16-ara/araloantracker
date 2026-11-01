@@ -31,6 +31,14 @@ export function DataProvider({ children }) {
     reload()
   }, [reload])
 
+  // Pick up new applications without a page reload: when the tab is opened again, and every 2 minutes.
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === 'visible') reload() }
+    document.addEventListener('visibilitychange', onVisible)
+    const timer = setInterval(() => { if (document.visibilityState === 'visible') reload() }, 120000)
+    return () => { document.removeEventListener('visibilitychange', onVisible); clearInterval(timer) }
+  }, [reload])
+
   const derived = useMemo(() => {
     const today = todayPH()
     const penaltyRate = raw.settings?.penalty_rate ?? 3

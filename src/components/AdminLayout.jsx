@@ -50,7 +50,14 @@ function Shell({ email }) {
   const { loading, error, loans, reload } = useData()
   const loc = useLocation()
   useEffect(() => { window.scrollTo(0, 0) }, [loc.pathname])
+  // New = sent from the apply page and not yet reviewed (no contract link prepared). Red, because it needs Ara.
+  const newApps = loans.filter((l) => l.status === 'awaiting_signature' && !l.sign_token).length
   const pendingApps = loans.filter((l) => l.status === 'for_release').length
+  // Show the count in the browser tab too: "(2) Ara Loan Tracker"
+  useEffect(() => {
+    const base = document.title.replace(/^\(\d+\+?\)\s*/, '')
+    document.title = newApps ? `(${newApps}) ${base}` : base
+  }, [newApps, loc.pathname])
 
   return (
     <div className="min-h-screen lg:flex">
@@ -64,7 +71,8 @@ function Shell({ email }) {
                 className={({ isActive }) => cx('flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-semibold', isActive ? 'bg-moss-light text-moss' : 'text-ink-soft hover:bg-paper hover:text-ink')}>
                 <span className="w-4 text-center">{icon}</span>
                 <span className="flex-1">{label}</span>
-                {to.endsWith('applications') && pendingApps > 0 && <span className="rounded-full bg-amber px-1.5 text-[11px] text-white">{pendingApps}</span>}
+                {to.endsWith('applications') && newApps > 0 && <span className="min-w-[20px] rounded-full bg-rust px-1.5 text-center text-[11px] font-bold leading-5 text-white" title={`${newApps} new application${newApps > 1 ? 's' : ''}`}>{newApps}</span>}
+                {to.endsWith('applications') && pendingApps > 0 && <span className="rounded-full bg-amber px-1.5 text-[11px] text-white" title={`${pendingApps} signed, waiting for release`}>{pendingApps}</span>}
               </NavLink>
             ))}
           </nav>
@@ -95,7 +103,7 @@ function Shell({ email }) {
             className={({ isActive }) => cx('relative flex flex-col items-center gap-0.5 py-2 text-[10.5px] font-semibold', isActive ? 'text-moss' : 'text-ink-faint')}>
             <span className="text-lg leading-none">{icon}</span>
             {label}
-            {to.endsWith('applications') && pendingApps > 0 && <span className="absolute right-[22%] top-1 rounded-full bg-amber px-1.5 text-[10px] text-white">{pendingApps}</span>}
+            {to.endsWith('applications') && (newApps > 0 || pendingApps > 0) && <span className={cx('absolute right-[22%] top-1 min-w-[18px] rounded-full px-1.5 text-center text-[10px] font-bold text-white', newApps > 0 ? 'bg-rust' : 'bg-amber')}>{newApps || pendingApps}</span>}
           </NavLink>
         ))}
       </nav>
