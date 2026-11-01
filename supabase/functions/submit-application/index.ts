@@ -19,6 +19,18 @@ function corsFor(req: Request) {
   }
 }
 
+/** The server key: the legacy service_role key, or the first of the new "sb_secret_…" keys. */
+function serverKey(): string | undefined {
+  const legacy = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+  if (legacy) return legacy
+  try {
+    const keys = JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS') ?? '{}')
+    return Object.values(keys).find((v): v is string => typeof v === 'string' && v.length > 0)
+  } catch {
+    return undefined
+  }
+}
+
 async function sha256(value: string) {
   const bytes = new TextEncoder().encode(value)
   const digest = await crypto.subtle.digest('SHA-256', bytes)
@@ -37,7 +49,8 @@ Deno.serve(async (req) => {
   if (Number(req.headers.get('content-length') ?? 0) > 11_000_000) return response({ error: 'Upload is too large.' }, 413)
 
   const url = Deno.env.get('SUPABASE_URL')!
-  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+  const serviceKey = serverKey()
+  if (!serviceKey) return response({ error: 'The application form is not set up yet (server key is missing). Please message us instead.' }, 503)
   const turnstileSecret = Deno.env.get('TURNSTILE_SECRET_KEY')
   if (!turnstileSecret) return response({ error: 'The application form is not set up yet (TURNSTILE_SECRET_KEY is missing). Please message us instead.' }, 503)
 
