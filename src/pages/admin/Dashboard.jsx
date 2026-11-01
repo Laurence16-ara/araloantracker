@@ -40,9 +40,9 @@ export default function Dashboard() {
       booked: thisMonth.reduce((s, l) => s + Number(l.interest), 0),
       lentCount: thisMonth.length,
       collected, collectedInterest, penalties,
-      toRelease: loans.filter((l) => l.status === 'for_release').length,
+      toRelease: loans.filter((l) => l.status === 'for_release' && l.signed_via !== 'application').length,
       awaiting: loans.filter((l) => l.status === 'awaiting_signature' && l.sign_token).length,
-      newApps: loans.filter((l) => l.status === 'awaiting_signature' && !l.sign_token).length,
+      newApps: loans.filter((l) => (l.status === 'for_release' && l.signed_via === 'application') || (l.status === 'awaiting_signature' && !l.sign_token)).length,
     }
   }, [loans, today])
 

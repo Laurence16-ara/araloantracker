@@ -51,8 +51,8 @@ function Shell({ email }) {
   const loc = useLocation()
   useEffect(() => { window.scrollTo(0, 0) }, [loc.pathname])
   // New = sent from the apply page and not yet reviewed (no contract link prepared). Red, because it needs Ara.
-  const newApps = loans.filter((l) => l.status === 'awaiting_signature' && !l.sign_token).length
-  const pendingApps = loans.filter((l) => l.status === 'for_release').length
+  const newApps = loans.filter((l) => (l.status === 'for_release' && l.signed_via === 'application') || (l.status === 'awaiting_signature' && !l.sign_token)).length
+  const pendingApps = loans.filter((l) => l.status === 'for_release' && l.signed_via !== 'application').length
   // Show the count in the browser tab too: "(2) Ara Loan Tracker"
   useEffect(() => {
     const base = document.title.replace(/^\(\d+\+?\)\s*/, '')

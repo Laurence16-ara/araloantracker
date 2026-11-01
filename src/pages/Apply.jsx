@@ -7,6 +7,8 @@ import PublicShell from '../components/PublicShell.jsx'
 import { Button, Card, ErrorNote, Field, Spinner } from '../components/ui.jsx'
 import { IdCardArt, SelfieArt } from '../components/IdIllustrations.jsx'
 import SignaturePad from '../components/SignaturePad.jsx'
+import ContractView from '../components/ContractView.jsx'
+import { buildContractText } from '../lib/contract.js'
 
 const ID_TYPES = [
   'PhilSys National ID', "Driver's License", 'UMID', 'SSS ID', 'Passport', 'PRC ID',
@@ -75,6 +77,12 @@ export default function Apply() {
     return { principal: amount, interest_rate: rate, interest: interestFor(amount, rate), schedule: null, release_date: null }
   }, [amount, settings])
 
+  // The agreement the applicant reads and signs on the last step (the server checks it matches the lender's template).
+  const contractText = useMemo(
+    () => (settings ? buildContractText({ loan, client: { full_name: f.full_name.trim(), address: f.address.trim(), phone: normalizePhone(f.phone) }, settings }) : ''),
+    [loan, settings, f.full_name, f.address, f.phone],
+  )
+
   const phoneWallet = f.payout_method === 'gcash' || f.payout_method === 'maya'
   const payoutNumber = f.use_my_number ? normalizePhone(f.phone) : String(f.payout_account).replace(/\D/g, '')
 
@@ -131,7 +139,7 @@ export default function Apply() {
     try {
       const payload = new FormData()
       payload.append('captchaToken', captchaToken)
-      payload.append('application', JSON.stringify({ full_name: f.full_name, address: f.address, id_type: f.id_type, phone: normalizePhone(f.phone), principal: amount, payout_method: f.payout_method, payout_other: f.payout_method === 'other' ? f.payout_other.trim() : null, payout_account: payoutNumber, signature }))
+      payload.append('application', JSON.stringify({ full_name: f.full_name, address: f.address, id_type: f.id_type, phone: normalizePhone(f.phone), principal: amount, payout_method: f.payout_method, payout_other: f.payout_method === 'other' ? f.payout_other.trim() : null, payout_account: payoutNumber, signature, contract_text: contractText }))
       payload.append('idPhoto', await compressImage(idFile), 'id.jpg')
       payload.append('selfie', await compressImage(selfieFile), 'selfie.jpg')
       const { data, error } = await supabase.functions.invoke('submit-application', { body: payload })
@@ -295,10 +303,16 @@ export default function Apply() {
             <Row k="Requested amount" v={peso(amount)} />
             <Row k="Estimated interest (1 month)" v={peso(loan.interest)} />
             <Row k="Payout method" v={PAYOUT_METHODS.find(([key]) => key === f.payout_method)?.[1] || f.payout_method} />
-            <p className="border-t border-line pt-3 text-sm text-ink-soft">This is an application, not the final loan agreement. If approved, the lender will set the payment schedule and release date, then send you the exact contract to review and sign before money is released.</p>
+          </Card>
+          <Card className="space-y-3 p-5">
+            <StepTitle>Loan agreement</StepTitle>
+            <p className="text-sm text-ink-soft">Please read the agreement. If approved, the lender sets the payment schedule and release date, then sends your loan.</p>
+            <div className="max-h-[60vh] overflow-y-auto rounded-xl">
+              <ContractView text={contractText} lenderName={settings.lender_name} borrowerName={f.full_name.trim()} signature={signature} signedName={f.full_name.trim()} />
+            </div>
             <div className="border-t border-line pt-3">
               <span className="label">Your signature</span>
-              <p className="mb-2 text-sm text-ink-soft">By signing, I confirm that my details are true and I apply for this loan.</p>
+              <p className="mb-2 text-sm text-ink-soft">By signing, I confirm that my details are true and I agree to this loan agreement.</p>
               <SignaturePad onChange={(v) => { setSignature(v); setErrors((e) => ({ ...e, signature: undefined })) }} />
               {errors.signature && <p className="mt-1 text-sm text-red-700">{errors.signature}</p>}
             </div>

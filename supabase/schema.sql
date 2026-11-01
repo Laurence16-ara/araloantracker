@@ -42,6 +42,36 @@ create table if not exists public.settings (
 );
 alter table public.settings add column if not exists lender_signature text;  -- PNG data URL
 insert into public.settings (id) values (1) on conflict (id) do nothing;
+-- Keep in sync with DEFAULT_TEMPLATE in src/lib/contract.js
+update public.settings set contract_template = $tpl$This Loan Agreement ("Agreement") is made and entered into on **{{agreement_date}}**, by and between:
+
+**Lender:** {{lender_name}}
+**Address:** {{lender_address}}
+
+**Borrower:** {{borrower_name}}
+**Address:** {{borrower_address}}
+**Phone number:** {{borrower_phone}}
+
+**1. Loan Amount and Disbursement**
+The Lender agrees to provide a loan to the Borrower in the principal amount of **{{principal}}** (the "Principal Amount"). The Principal Amount shall be disbursed to the Borrower on **{{release_date}}**.
+
+**2. Repayment**
+The Borrower shall repay the total amount of **{{total}}** in the installments listed here: **{{payment_terms}}**. The final installment is due on **{{due_date}}**.
+
+**3. Interest**
+The Principal Amount shall accrue interest of **{{interest}}** ({{interest_rate}}) for a period of **one (1) month**. The interest is included in the total repayment amount of **{{total}}**.
+
+**4. Late Payment**
+If an installment is not paid in full by its due date, the outstanding balance of that installment shall incur a penalty of **{{penalty_rate}} per day** until paid. The penalty is calculated on the overdue installment only, not on future installments. For example, {{penalty_example}}.
+
+**5. Separability**
+If any provision of this Agreement is held to be invalid or unenforceable, such invalidity or unenforceability shall not affect the remaining provisions, which shall continue to be in full force and effect.
+
+**6. Governing Law**
+This Agreement shall be governed by and construed in accordance with the laws of the Republic of the Philippines.
+
+**IN WITNESS WHEREOF**, the parties hereto have executed this Loan Agreement as of the day and year first above written.$tpl$
+where id = 1 and coalesce(contract_template, '') = '';
 alter table public.settings alter column lender_name set default 'Ara Loan Tracker';
 alter table public.settings alter column lender_address set default '';
 update public.settings
@@ -113,6 +143,9 @@ alter table public.loans add column if not exists payout_other text;    -- bank 
 alter table public.loans add column if not exists payout_account text;  -- number to send the loan to
 alter table public.loans add column if not exists lender_name_snapshot text;
 alter table public.loans add column if not exists lender_signature_snapshot text;
+-- 'application' = signed on the apply form (schedule and release date are set by the lender at release);
+-- 'link' = signed the final terms from a /sign/ link.
+alter table public.loans add column if not exists signed_via text check (signed_via in ('application','link'));
 create index if not exists loans_client_idx on public.loans (client_id);
 create index if not exists loans_release_idx on public.loans (release_date);
 
@@ -196,6 +229,7 @@ set search_path = public
 as $$
   select json_build_object(
     'lender_name', lender_name,
+    'lender_address', lender_address,
     'default_rate', default_rate,
     'penalty_rate', penalty_rate,
     'apply_open', apply_open,
@@ -204,6 +238,42 @@ as $$
     'contract_template', contract_template
   ) from public.settings where id = 1;
 $$;
+
+-- Peso text exactly like the app shows it: ₱10,000 or ₱1,234.50
+create or replace function public.peso_text(v numeric) returns text language sql immutable as $$
+  select '₱' || rtrim(to_char(round(v, 2), 'FM999,999,999,990.99'), '.');
+$$;
+
+-- The contract an applicant signs on /apply must be the lender's template with the right
+-- name, amount, interest and penalty filled in (it is built in the browser, so we check it here).
+create or replace function public.application_contract_ok(
+  p_text text, p_template text, p_name text, p_principal numeric, p_interest numeric, p_rate numeric, p_penalty numeric
+) returns boolean language plpgsql immutable as $$
+declare
+  pattern text;
+  keys text[];
+  vals text[];
+  expected jsonb := jsonb_build_object(
+    'borrower_name', p_name,
+    'principal', public.peso_text(p_principal),
+    'interest', public.peso_text(p_interest),
+    'total', public.peso_text(p_principal + p_interest),
+    'interest_rate', trim_scale(p_rate)::text || '% per month',
+    'penalty_rate', trim_scale(p_penalty)::text || '%');
+  i int;
+begin
+  if coalesce(p_text, '') = '' or coalesce(p_template, '') = '' or length(p_text) > 20000 then return false; end if;
+  select array_agg(m[1]) into keys from regexp_matches(p_template, '\{\{(\w+)\}\}', 'g') as m;
+  -- Escape the template for a regex, then turn each {{placeholder}} into a capture group.
+  pattern := regexp_replace(p_template, '([.^$*+?()\[\]{}|\\])', '\\\1', 'g');
+  pattern := regexp_replace(pattern, '\\\{\\\{\w+\\\}\\\}', '(.*?)', 'g');
+  vals := regexp_match(p_text, '^' || pattern || '$');
+  if vals is null then return false; end if;
+  for i in 1 .. coalesce(array_length(keys, 1), 0) loop
+    if expected ? keys[i] and vals[i] is distinct from expected ->> keys[i] then return false; end if;
+  end loop;
+  return true;
+end; $$;
 
 -- New client application (from /apply)
 create or replace function public.submit_application(p jsonb)
@@ -245,6 +315,10 @@ begin
   if coalesce(p ->> 'signature', '') not like 'data:image/png;base64,%' or length(p ->> 'signature') > 400000 then
     raise exception 'Please sign in the signature box.';
   end if;
+  if not public.application_contract_ok(p ->> 'contract_text', s.contract_template, left(trim(p ->> 'full_name'), 120),
+       v_amount, round(v_amount * s.default_rate / 100, 2), s.default_rate, s.penalty_rate) then
+    raise exception 'The loan agreement changed while you were applying. Please refresh the page and sign again.';
+  end if;
 
   insert into public.clients (full_name, phone, address,
                               id_type, id_photo_path, selfie_path, signature, status, source)
@@ -253,12 +327,17 @@ begin
           p ->> 'id_photo_path', p ->> 'selfie_path', p ->> 'signature', 'pending', 'online')
   returning id into v_client;
 
+  -- Signed on the form: goes straight to "review & release"; the lender sets schedule and release date.
   insert into public.loans (client_id, principal, interest_rate, interest, schedule,
                             status, source,
-                            payout_method, payout_other, payout_account)
+                            payout_method, payout_other, payout_account,
+                            contract_text, signature, signed_name, signed_at, signed_via,
+                            lender_name_snapshot, lender_signature_snapshot)
   values (v_client, v_amount, s.default_rate, round(v_amount * s.default_rate / 100, 2),
-          v_schedule, 'awaiting_signature', 'online',
-          p ->> 'payout_method', left(trim(p ->> 'payout_other'), 60), p ->> 'payout_account')
+          v_schedule, 'for_release', 'online',
+          p ->> 'payout_method', left(trim(p ->> 'payout_other'), 60), p ->> 'payout_account',
+          p ->> 'contract_text', p ->> 'signature', left(trim(p ->> 'full_name'), 120), now(), 'application',
+          s.lender_name, s.lender_signature)
   returning * into v_loan;
 
   return json_build_object('loan_no', v_loan.loan_no);
@@ -340,6 +419,7 @@ begin
          signed_name = left(trim(p_signed_name), 120),
          signed_at = now(),
          status = 'for_release',
+         signed_via = 'link',
          sign_token = null,
          sign_expires_at = null
    where id = l.id;
@@ -388,8 +468,12 @@ begin
   if l.signature is null or coalesce(l.contract_text, '') = '' then
     raise exception 'A prepared and signed contract is required before release.';
   end if;
-  if l.signature is not null and (l.schedule <> p_schedule or l.release_date <> p_release_date) then
+  if coalesce(l.signed_via, 'link') <> 'application'
+     and (l.schedule <> p_schedule or l.release_date is distinct from p_release_date) then
     raise exception 'Signed contract terms cannot be changed.';
+  end if;
+  if p_schedule not in ('monthly','semi_monthly','weekly') or p_release_date is null then
+    raise exception 'Choose the payment schedule and release date.';
   end if;
   update public.loans set status='active', release_date=p_release_date, schedule=p_schedule where id=l.id;
   update public.clients set status='approved' where id=l.client_id and status='pending';
@@ -400,7 +484,8 @@ returns trigger language plpgsql as $$
 begin
   if old.signature is not null and (new.principal is distinct from old.principal
     or new.interest is distinct from old.interest or new.interest_rate is distinct from old.interest_rate
-    or new.schedule is distinct from old.schedule or new.release_date is distinct from old.release_date
+    or ((new.schedule is distinct from old.schedule or new.release_date is distinct from old.release_date)
+        and not (old.signed_via = 'application' and old.status = 'for_release'))
     or new.contract_text is distinct from old.contract_text
     or new.lender_name_snapshot is distinct from old.lender_name_snapshot
     or new.lender_signature_snapshot is distinct from old.lender_signature_snapshot) then

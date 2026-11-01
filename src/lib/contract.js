@@ -38,7 +38,7 @@ export function contractValues({ loan, client, settings, agreementDate }) {
   const each = plan.length ? plan[0].amount : Math.round(total / n)
   let terms
   if (!loan.schedule) {
-    terms = 'the payment frequency, installment amounts, and due dates specified by the Lender before this Agreement is signed'
+    terms = 'the installments set by the Lender when this loan is approved (one monthly payment, two payments every 15 days, or four weekly payments), all within one (1) month of release'
   } else if (plan.length) {
     terms = plan.length === 1
       ? `one payment of ${peso(plan[0].amount)} on ${fmtDate(plan[0].due)}`

@@ -35,7 +35,8 @@ function ReleaseCard({ loan }) {
   const isNew = c?.status === 'pending'
   const [releaseDate, setReleaseDate] = useState(loan.release_date || todayPH())
   const [schedule, setSchedule] = useState(loan.schedule || 'semi_monthly')
-  const signedTerms = Boolean(loan.signature)
+  // Signed on the apply form: Ara still picks the schedule and release date here. Signed from a link: terms are locked.
+  const signedTerms = Boolean(loan.signature) && loan.signed_via !== 'application'
   const [copied, setCopied] = useState(false)
   const plan = schedulePlan({ ...loan, schedule, release_date: releaseDate })
   const [busy, setBusy] = useState(null)
