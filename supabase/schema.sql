@@ -75,6 +75,7 @@ create table if not exists public.clients (
   created_at timestamptz not null default now()
 );
 create index if not exists clients_name_idx on public.clients (lower(full_name));
+alter table public.clients add column if not exists signature text;  -- PNG data URL, signed on the application form
 
 -- ---------------------------------------------------------------------
 -- 4. Loans
@@ -241,12 +242,15 @@ begin
      or coalesce(p ->> 'selfie_path', '') not like 'applications/%' then
     raise exception 'Valid ID and selfie are required.';
   end if;
+  if coalesce(p ->> 'signature', '') not like 'data:image/png;base64,%' or length(p ->> 'signature') > 400000 then
+    raise exception 'Please sign in the signature box.';
+  end if;
 
   insert into public.clients (full_name, phone, address,
-                              id_type, id_photo_path, selfie_path, status, source)
+                              id_type, id_photo_path, selfie_path, signature, status, source)
   values (left(trim(p ->> 'full_name'), 120), left(trim(p ->> 'phone'), 20),
           left(trim(p ->> 'address'), 300), left(p ->> 'id_type', 60),
-          p ->> 'id_photo_path', p ->> 'selfie_path', 'pending', 'online')
+          p ->> 'id_photo_path', p ->> 'selfie_path', p ->> 'signature', 'pending', 'online')
   returning id into v_client;
 
   insert into public.loans (client_id, principal, interest_rate, interest, schedule,

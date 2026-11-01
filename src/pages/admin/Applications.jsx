@@ -79,7 +79,9 @@ function ReleaseCard({ loan }) {
       {isNew && (
         <div className="mt-4 grid gap-4 sm:grid-cols-[1fr_1fr_1.2fr]">
           <div><div className="label">Valid ID · {c.id_type}</div><PrivateImage path={c.id_photo_path} alt="ID" /></div>
-          <div><div className="label">Selfie with ID</div><PrivateImage path={c.selfie_path} alt="Selfie" /></div>
+          <div><div className="label">Selfie with ID</div><PrivateImage path={c.selfie_path} alt="Selfie" />
+            {c.signature && <div className="mt-3"><div className="label">Signature on application</div><img src={c.signature} alt="Applicant's signature" className="mt-1 h-20 w-full rounded-lg border border-line bg-white object-contain p-2" /></div>}
+          </div>
           <dl className="space-y-1.5 text-sm">
             <Info k="Mobile" v={c.phone} />
             <Info k="Address" v={c.address} />

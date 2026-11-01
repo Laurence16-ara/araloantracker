@@ -6,6 +6,7 @@ import { compressImage, normalizePhone, validPhone, cx } from '../lib/utils.js'
 import PublicShell from '../components/PublicShell.jsx'
 import { Button, Card, ErrorNote, Field, Spinner } from '../components/ui.jsx'
 import { IdCardArt, SelfieArt } from '../components/IdIllustrations.jsx'
+import SignaturePad from '../components/SignaturePad.jsx'
 
 const ID_TYPES = [
   'PhilSys National ID', "Driver's License", 'UMID', 'SSS ID', 'Passport', 'PRC ID',
@@ -21,6 +22,7 @@ export default function Apply() {
   const [f, setF] = useState({ full_name: '', phone: '', address: '', id_type: ID_TYPES[0], principal: '', payout_method: 'gcash', payout_other: '', use_my_number: true, payout_account: '' })
   const [idFile, setIdFile] = useState(null)
   const [selfieFile, setSelfieFile] = useState(null)
+  const [signature, setSignature] = useState(null)
   const [captchaToken, setCaptchaToken] = useState('')
   const [errors, setErrors] = useState({})
   const [submitting, setSubmitting] = useState(false)
@@ -96,6 +98,7 @@ export default function Apply() {
         else if (!phoneWallet && !/^\d{10,20}$/.test(payoutNumber)) e.payout_account = 'Enter your account number (numbers only).'
       }
     }
+    if (s === LAST && !signature) e.signature = 'Please sign in the box.'
     setErrors(e)
     return !Object.keys(e).length
   }
@@ -128,7 +131,7 @@ export default function Apply() {
     try {
       const payload = new FormData()
       payload.append('captchaToken', captchaToken)
-      payload.append('application', JSON.stringify({ full_name: f.full_name, address: f.address, id_type: f.id_type, phone: normalizePhone(f.phone), principal: amount, payout_method: f.payout_method, payout_other: f.payout_method === 'other' ? f.payout_other.trim() : null, payout_account: payoutNumber }))
+      payload.append('application', JSON.stringify({ full_name: f.full_name, address: f.address, id_type: f.id_type, phone: normalizePhone(f.phone), principal: amount, payout_method: f.payout_method, payout_other: f.payout_method === 'other' ? f.payout_other.trim() : null, payout_account: payoutNumber, signature }))
       payload.append('idPhoto', await compressImage(idFile), 'id.jpg')
       payload.append('selfie', await compressImage(selfieFile), 'selfie.jpg')
       const { data, error } = await supabase.functions.invoke('submit-application', { body: payload })
@@ -293,6 +296,12 @@ export default function Apply() {
             <Row k="Estimated interest (1 month)" v={peso(loan.interest)} />
             <Row k="Payout method" v={PAYOUT_METHODS.find(([key]) => key === f.payout_method)?.[1] || f.payout_method} />
             <p className="border-t border-line pt-3 text-sm text-ink-soft">This is an application, not the final loan agreement. If approved, the lender will set the payment schedule and release date, then send you the exact contract to review and sign before money is released.</p>
+            <div className="border-t border-line pt-3">
+              <span className="label">Your signature</span>
+              <p className="mb-2 text-sm text-ink-soft">By signing, I confirm that my details are true and I apply for this loan.</p>
+              <SignaturePad onChange={(v) => { setSignature(v); setErrors((e) => ({ ...e, signature: undefined })) }} />
+              {errors.signature && <p className="mt-1 text-sm text-red-700">{errors.signature}</p>}
+            </div>
             <div className="pt-2">{!import.meta.env.VITE_TURNSTILE_SITE_KEY ? <ErrorNote>Application security check is not configured yet.</ErrorNote> : <div ref={captchaRef} />}</div>
             <ErrorNote>{submitErr}</ErrorNote>
           </Card>

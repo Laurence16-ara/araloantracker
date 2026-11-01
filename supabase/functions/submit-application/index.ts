@@ -77,9 +77,23 @@ Deno.serve(async (req) => {
   verifyForm.set('secret', turnstileSecret)
   verifyForm.set('response', captchaToken)
   verifyForm.set('remoteip', ip)
-  const verification = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', { method: 'POST', body: verifyForm })
-  const verdict = await verification.json()
-  if (!verdict.success || !allowedOrigins.some((o) => new URL(o).hostname === verdict.hostname)) return response({ error: 'Security check expired. Please complete it again.' }, 400)
+  let verdict: { success?: boolean; hostname?: string; 'error-codes'?: string[] }
+  try {
+    const verification = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', { method: 'POST', body: verifyForm })
+    verdict = await verification.json()
+  } catch {
+    return response({ error: 'Couldn’t check the security box right now. Please try again in a moment.' }, 502)
+  }
+  const codes: string[] = verdict['error-codes'] ?? []
+  if (!verdict.success) {
+    if (codes.some((c) => c.includes('secret'))) {
+      return response({ error: 'The security check is not set up right (TURNSTILE_SECRET_KEY doesn’t match the Turnstile widget). Please message us instead.' }, 503)
+    }
+    return response({ error: 'Security check expired. Please complete it again, then press Submit.' }, 400)
+  }
+  if (!allowedOrigins.some((o) => new URL(o).hostname === verdict.hostname)) {
+    return response({ error: `The security check was done on ${verdict.hostname}, but APP_ORIGIN is ${appOrigin}. They must match.` }, 503)
+  }
 
   const supabase = createClient(url, serviceKey, { auth: { persistSession: false } })
   const { data: allowed, error: limitError } = await supabase.rpc('check_application_rate_limit', { p_ip_hash: await sha256(`${turnstileSecret}:${ip}`) })
