@@ -6,6 +6,21 @@ import { schedulePlan, peso, fmtDate, SCHEDULES } from '../lib/loanMath.js'
 
 const IMG_OPTS = { pixelRatio: 2, backgroundColor: '#ffffff', skipFonts: true }
 
+// Safari (iPhone, iPad, Mac) often leaves <img> elements (the signatures) blank on the first
+// capture, because it draws the page into an SVG before the images inside it are ready.
+// So: wait until every image is decoded, then capture a few times and keep the last result.
+const IS_SAFARI = typeof navigator !== 'undefined' &&
+  (/iP(hone|ad|od)/.test(navigator.userAgent) || (/Safari/.test(navigator.userAgent) && !/Chrome|Chromium|CriOS|Android/.test(navigator.userAgent)))
+
+async function renderContractBlob(node) {
+  const imgs = [...node.querySelectorAll('img')]
+  await Promise.all(imgs.map((img) => (img.decode ? img.decode().catch(() => {}) : Promise.resolve())))
+  const passes = IS_SAFARI ? 3 : 1
+  let blob = null
+  for (let i = 0; i < passes; i++) blob = await toBlob(node, IMG_OPTS)
+  return blob
+}
+
 // Copies a PNG to the clipboard. The ClipboardItem gets a promise right away
 // (inside the click) so it also works on iPhone Safari.
 async function copyPng(makeBlob) {
@@ -49,7 +64,7 @@ function useContractImage(loan, client) {
   const [msg, setMsg] = useState(null)
   const fileBase = `Loan Agreement #${loan.loan_no} - ${client.full_name}`
   const flash = (t) => { setMsg(t); setTimeout(() => setMsg(null), 2500) }
-  const makeBlob = () => toBlob(ref.current, IMG_OPTS)
+  const makeBlob = () => renderContractBlob(ref.current)
 
   const download = (blob) => {
     const a = document.createElement('a')
