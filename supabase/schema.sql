@@ -235,7 +235,8 @@ as $$
     'apply_open', apply_open,
     'min_amount', min_amount,
     'max_amount', max_amount,
-    'contract_template', contract_template
+    'contract_template', contract_template,
+    'lender_signature', lender_signature
   ) from public.settings where id = 1;
 $$;
 
@@ -519,11 +520,6 @@ grant execute on function public.prepare_sign_request(uuid,text,date,text,text) 
 revoke all on function public.release_loan(uuid,date,text) from public, anon;
 grant execute on function public.release_loan(uuid,date,text) to authenticated;
 
--- Prior online applications were signed before the lender set exact terms.
--- Require those applicants to receive a corrected contract and sign again.
-update public.loans set status='awaiting_signature', signature=null, signed_name=null,
-  signed_at=null, contract_text=null, sign_token=null, sign_expires_at=null
-where source='online' and status='for_release' and release_date is null;
 
 -- ---------------------------------------------------------------------
 -- 9. Add the admin accounts (change the emails, then run)
