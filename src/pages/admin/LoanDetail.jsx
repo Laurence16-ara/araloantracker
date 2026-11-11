@@ -160,23 +160,22 @@ function EditLoanModal({ open, onClose, loan }) {
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value })
   async function save() {
     setBusy(true); setErr(null)
-    const { error } = await supabase.from('loans').update({
-      principal: Number(f.principal), interest_rate: Number(f.interest_rate), interest: Number(f.interest),
-      schedule: f.schedule, release_date: f.release_date || null, note: f.note || null,
-    }).eq('id', loan.id)
+    const patch = { schedule: f.schedule, release_date: f.release_date || null, note: f.note || null }
+    if (!signedTerms) Object.assign(patch, { principal: Number(f.principal), interest_rate: Number(f.interest_rate), interest: Number(f.interest) })
+    const { error } = await supabase.from('loans').update(patch).eq('id', loan.id)
     setBusy(false)
     if (error) return setErr(error.message)
     reload(); onClose()
   }
   return (
     <Modal open={open} onClose={onClose} title="Edit loan">
-      {signedTerms && <p className="mb-3 rounded-lg bg-amber-light px-3 py-2 text-sm text-amber">Financial terms, schedule and release date are locked to the signed contract.</p>}
+      {signedTerms && <p className="mb-3 rounded-lg bg-amber-light px-3 py-2 text-sm text-amber">Loan amount and interest are locked to the signed contract. You can still change the schedule and release date.</p>}
       <div className="grid grid-cols-2 gap-3">
         <Field label="Loan amount"><input disabled={signedTerms} className="input num" value={f.principal ?? ''} onChange={(e) => setF({ ...f, principal: e.target.value, interest: interestFor(e.target.value, f.interest_rate) })} /></Field>
-        <Field label="Release date"><input disabled={signedTerms} className="input" type="date" value={f.release_date ?? ''} onChange={set('release_date')} /></Field>
+        <Field label="Release date"><input className="input" type="date" value={f.release_date ?? ''} onChange={set('release_date')} /></Field>
         <Field label="Interest %"><input disabled={signedTerms} className="input num" value={f.interest_rate ?? ''} onChange={(e) => setF({ ...f, interest_rate: e.target.value, interest: interestFor(f.principal, e.target.value) })} /></Field>
         <Field label="Interest amount"><input disabled={signedTerms} className="input num" value={f.interest ?? ''} onChange={set('interest')} /></Field>
-        <div className="col-span-2"><span className="label">Schedule</span><Segmented disabled={signedTerms} value={f.schedule} onChange={(v) => setF({ ...f, schedule: v })} options={Object.entries(SCHEDULES).map(([k, s]) => [k, s.label])} /></div>
+        <div className="col-span-2"><span className="label">Schedule</span><Segmented value={f.schedule} onChange={(v) => setF({ ...f, schedule: v })} options={Object.entries(SCHEDULES).map(([k, s]) => [k, s.label])} /></div>
         <Field label="Note" className="col-span-2"><input className="input" value={f.note ?? ''} onChange={set('note')} /></Field>
       </div>
       <div className="mt-3"><ErrorNote>{err}</ErrorNote></div>

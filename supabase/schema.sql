@@ -480,13 +480,12 @@ begin
   update public.clients set status='approved' where id=l.client_id and status='pending';
 end; $$;
 
+-- Amounts are locked once signed. The lender may still change the schedule and release date.
 create or replace function public.lock_signed_contract_terms()
 returns trigger language plpgsql as $$
 begin
   if old.signature is not null and (new.principal is distinct from old.principal
     or new.interest is distinct from old.interest or new.interest_rate is distinct from old.interest_rate
-    or ((new.schedule is distinct from old.schedule or new.release_date is distinct from old.release_date)
-        and not (old.signed_via = 'application' and old.status = 'for_release'))
     or new.contract_text is distinct from old.contract_text
     or new.lender_name_snapshot is distinct from old.lender_name_snapshot
     or new.lender_signature_snapshot is distinct from old.lender_signature_snapshot) then

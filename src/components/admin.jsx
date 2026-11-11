@@ -297,7 +297,7 @@ export function PaymentModal({ open, onClose, loan }) {
   useEffect(() => {
     if (!open || !loan) return
     const next = loan.state.nextDue
-    setF({ amount: String(next ? next.remaining : loan.state.balance), penalty: '', paid_on: todayPH(), method: 'cash', note: '' })
+    setF({ amount: String(next ? next.remaining : loan.state.balance), penalty: '', paid_on: todayPH(), method: 'bank', note: '' })
     setErr(null)
   }, [open, loan])
   if (!loan) return null
@@ -328,7 +328,7 @@ export function PaymentModal({ open, onClose, loan }) {
           <Field label="Late fee collected" hint="Optional. Not part of the balance"><input className="input num" inputMode="decimal" value={f.penalty} onChange={(e) => setF({ ...f, penalty: e.target.value })} placeholder="0" /></Field>
           <Field label="Method">
             <select className="input" value={f.method} onChange={(e) => setF({ ...f, method: e.target.value })}>
-              <option value="cash">Cash</option><option value="gcash">GCash</option><option value="bank">Bank</option><option value="other">Other</option>
+              <option value="bank">Bank</option><option value="gcash">GCash</option><option value="cash">Cash</option><option value="other">Other</option>
             </select>
           </Field>
         </div>
