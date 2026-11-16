@@ -24,7 +24,8 @@ export default function Records() {
   const shown = inMonth
     .filter((l) => filter === 'all' || (filter === 'unpaid' && l.status === 'active') || (filter === 'overdue' && l.state.isOverdue) || (filter === 'paid' && l.status === 'paid'))
     .filter((l) => !q || `${l.client?.full_name} ${l.client?.aliases || ''}`.toLowerCase().includes(q.toLowerCase()))
-    .sort((a, b) => (a.release_date < b.release_date ? -1 : a.release_date > b.release_date ? 1 : a.loan_no - b.loan_no))
+    // Newest first
+    .sort((a, b) => (a.release_date > b.release_date ? -1 : a.release_date < b.release_date ? 1 : b.loan_no - a.loan_no))
 
   const sum = (arr, f) => arr.reduce((s, l) => s + f(l), 0)
   return (

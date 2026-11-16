@@ -4,7 +4,7 @@ import { supabase } from '../../lib/supabase.js'
 import { useData } from '../../lib/data.jsx'
 import { peso, fmtDate, SCHEDULES, interestFor, todayPH, loanSummaryText } from '../../lib/loanMath.js'
 import { Badge, Button, Card, Empty, ErrorNote, Field, Modal, Segmented } from '../../components/ui.jsx'
-import { PaymentModal, SignLinkBox } from '../../components/admin.jsx'
+import { CopyKycSummaryButton, PaymentModal, SignLinkBox } from '../../components/admin.jsx'
 import SignedContract, { CopyContractImageButton } from '../../components/SignedContract.jsx'
 import { payoutLabel } from '../../lib/payout.js'
 
@@ -54,7 +54,7 @@ export default function LoanDetail() {
           {loan.status === 'active' && <Button onClick={() => setPay(true)}>+ Add payment</Button>}
           {loan.signature && <Button variant="secondary" onClick={() => setContract(true)}>Contract</Button>}
           {loan.signature && <CopyContractImageButton loan={loan} client={c} settings={settings} size="md" />}
-          {loan.release_date && <CopySummaryButton text={loanSummaryText(loan, settings?.penalty_rate ?? 3)} />}
+          {loan.release_date && <CopyKycSummaryButton client={c} summary={loanSummaryText(loan, settings?.penalty_rate ?? 3)} />}
           <Button variant="secondary" onClick={() => setEdit(true)}>Edit</Button>
         </div>
       </div>
@@ -139,21 +139,6 @@ export default function LoanDetail() {
       </Modal>
     </>
   )
-}
-
-function CopySummaryButton({ text }) {
-  const [msg, setMsg] = useState(null)
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(text)
-      setMsg('Copied ✓')
-    } catch {
-      // Older browsers: show the text so it can be copied by hand.
-      window.prompt('Copy this text', text)
-    }
-    setTimeout(() => setMsg(null), 2500)
-  }
-  return <Button variant="secondary" onClick={copy} title={text}>{msg || 'Copy summary'}</Button>
 }
 
 function Box({ label, value, sub, tone = '' }) {

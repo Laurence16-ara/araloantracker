@@ -452,7 +452,6 @@ export function ClientModal({ open, onClose, client }) {
   )
 }
 
-// ---------------------------------------------------------------- Private photo
 // ---------------------------------------------------------------- ID photos (one image: selfie with ID on top, ID below)
 async function loadPrivatePhoto(path) {
   if (!path) return null
@@ -475,10 +474,30 @@ async function loadPrivatePhoto(path) {
   }
 }
 
-// turns: quarter turns clockwise applied to the ID photo.
-function drawKycSheet(selfie, idPhoto, turns) {
+// Breaks text into lines that fit the given width.
+function wrapLines(ctx, text, width) {
+  const out = []
+  for (const para of text.split('\n')) {
+    let line = ''
+    for (const word of para.split(' ')) {
+      const next = line ? `${line} ${word}` : word
+      if (line && ctx.measureText(next).width > width) { out.push(line); line = word } else line = next
+    }
+    out.push(line)
+  }
+  return out
+}
+const SUMMARY_FONT = '600 30px "Plus Jakarta Sans", system-ui, sans-serif'
+const SUMMARY_LINE = 44
+
+// turns: quarter turns clockwise applied to the ID photo. summary: optional text printed under the photos.
+function drawKycSheet(selfie, idPhoto, turns, summary = '') {
   const W = 1000, PAD = 24, GAP = 20
   const inner = W - PAD * 2
+  const measure = document.createElement('canvas').getContext('2d')
+  measure.font = SUMMARY_FONT
+  const lines = summary ? wrapLines(measure, summary, inner - 40) : []
+  const summaryH = lines.length ? lines.length * SUMMARY_LINE + 40 : 0
   const idSwap = turns % 2 === 1
   const idW = idPhoto ? (idSwap ? idPhoto.height : idPhoto.width) : 0
   const idH = idPhoto ? (idSwap ? idPhoto.width : idPhoto.height) : 0
@@ -486,7 +505,8 @@ function drawKycSheet(selfie, idPhoto, turns) {
   const idDrawH = idPhoto ? Math.round(inner * idH / idW) : 0
   const canvas = document.createElement('canvas')
   canvas.width = W
-  canvas.height = PAD * 2 + selfieH + idDrawH + (selfie && idPhoto ? GAP : 0)
+  const photosH = selfieH + idDrawH + (selfie && idPhoto ? GAP : 0)
+  canvas.height = PAD * 2 + photosH + (summaryH ? summaryH + (photosH ? GAP : 0) : 0)
   const ctx = canvas.getContext('2d')
   ctx.fillStyle = '#ffffff'
   ctx.fillRect(0, 0, canvas.width, canvas.height)
@@ -499,10 +519,69 @@ function drawKycSheet(selfie, idPhoto, turns) {
     const w = idSwap ? idDrawH : inner, h = idSwap ? inner : idDrawH
     ctx.drawImage(idPhoto, -w / 2, -h / 2, w, h)
     ctx.restore()
+    y += idDrawH + GAP
+  }
+  if (lines.length) {
+    ctx.fillStyle = '#F6F3EC'
+    ctx.fillRect(PAD, y, inner, summaryH)
+    ctx.fillStyle = '#1D1B16'
+    ctx.font = SUMMARY_FONT
+    ctx.textBaseline = 'middle'
+    lines.forEach((line, i) => ctx.fillText(line, PAD + 20, y + 20 + SUMMARY_LINE * i + SUMMARY_LINE / 2))
   }
   return canvas
 }
 const canvasBlob = (canvas, type, q) => new Promise((ok, fail) => canvas.toBlob((b) => (b ? ok(b) : fail(new Error('image'))), type, q))
+
+function idTurns(idPath, idPhoto) {
+  let saved = null
+  try { saved = localStorage.getItem(`kyc-turns:${idPath}`) } catch { /* private mode */ }
+  // An ID photo taken upright is turned on its side so the card lies horizontally.
+  if (saved === null) return idPhoto && idPhoto.height > idPhoto.width ? 3 : 0
+  return Number(saved) % 4
+}
+
+// Copies a PNG (given as a promise) and falls back to share / download. Returns a short status for the button.
+async function copyPngPromise(blobPromise, fileName) {
+  try {
+    if (!window.ClipboardItem || !navigator.clipboard?.write) throw new Error('unsupported')
+    // Safari needs the ClipboardItem created right on the tap, so it gets the promise.
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blobPromise })])
+    return 'Copied ✓'
+  } catch {
+    try {
+      const file = new File([await blobPromise], fileName, { type: 'image/png' })
+      if (navigator.canShare?.({ files: [file] })) { await navigator.share({ files: [file] }); return null }
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(file); a.download = file.name; a.click()
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000)
+      return 'Downloaded'
+    } catch (e) {
+      return e?.name === 'AbortError' ? null : 'Could not copy'
+    }
+  }
+}
+
+// One button: selfie with ID, the ID, and the loan summary text in a single picture.
+export function CopyKycSummaryButton({ client, summary }) {
+  const [msg, setMsg] = useState(null)
+  const [busy, setBusy] = useState(false)
+  async function copy() {
+    setBusy(true)
+    const blob = (async () => {
+      const [selfie, idPhoto] = await Promise.all([
+        loadPrivatePhoto(client.selfie_path).catch(() => null),
+        loadPrivatePhoto(client.id_photo_path).catch(() => null),
+      ])
+      if (document.fonts?.ready) await document.fonts.ready
+      return canvasBlob(drawKycSheet(selfie, idPhoto, idTurns(client.id_photo_path, idPhoto), summary), 'image/png')
+    })()
+    const m = await copyPngPromise(blob, `${client.full_name} - Selfie ID Summary.png`)
+    setBusy(false)
+    if (m) { setMsg(m); setTimeout(() => setMsg(null), 2500) }
+  }
+  return <Button variant="secondary" onClick={copy} loading={busy}>{msg || 'Copy Selfie/ID/Summary'}</Button>
+}
 
 export function KycPhotos({ client }) {
   const { id_photo_path: idPath, selfie_path: selfiePath } = client
@@ -519,12 +598,8 @@ export function KycPhotos({ client }) {
     if (!idPath && !selfiePath) return
     Promise.all([loadPrivatePhoto(selfiePath).catch(() => null), loadPrivatePhoto(idPath).catch(() => null)]).then(([selfie, idPhoto]) => {
       if (!live) return
-      let saved = null
-      try { saved = localStorage.getItem(key) } catch { /* private mode */ }
-      // An ID photo taken upright is turned on its side so the card lies horizontally.
-      const auto = idPhoto && idPhoto.height > idPhoto.width ? 3 : 0
       setPhotos({ selfie, idPhoto })
-      setTurns(saved === null ? auto : Number(saved) % 4)
+      setTurns(idTurns(idPath, idPhoto))
     })
     return () => { live = false }
   }, [idPath, selfiePath])
@@ -551,26 +626,8 @@ export function KycPhotos({ client }) {
   }
   async function copy() {
     setBusy(true)
-    const blob = canvasBlob(drawKycSheet(photos.selfie, photos.idPhoto, turns), 'image/png')
-    try {
-      if (!window.ClipboardItem || !navigator.clipboard?.write) throw new Error('unsupported')
-      // Safari needs the ClipboardItem created right on the tap, so it gets the promise.
-      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
-      flash('Copied ✓')
-    } catch {
-      try {
-        const file = new File([await blob], `${client.full_name} - ID.png`, { type: 'image/png' })
-        if (navigator.canShare?.({ files: [file] })) await navigator.share({ files: [file] })
-        else {
-          const a = document.createElement('a')
-          a.href = URL.createObjectURL(file); a.download = file.name; a.click()
-          setTimeout(() => URL.revokeObjectURL(a.href), 5000)
-          flash('Downloaded')
-        }
-      } catch (e) {
-        if (e?.name !== 'AbortError') flash('Could not copy')
-      }
-    }
+    const m = await copyPngPromise(canvasBlob(drawKycSheet(photos.selfie, photos.idPhoto, turns), 'image/png'), `${client.full_name} - ID.png`)
+    if (m) flash(m)
     setBusy(false)
   }
   const btn = 'rounded-lg border border-line bg-card px-2 py-1.5 text-xs font-semibold text-ink-soft hover:text-ink disabled:opacity-60'
