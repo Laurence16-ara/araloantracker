@@ -194,7 +194,7 @@ export function NewLoanModal({ open, onClose, clientId }) {
       {created ? (
         <div className="space-y-4">
           <SignLinkBox loan={created.loan} client={created.client} />
-          <p className="text-sm font-semibold">Next step: copy the message or the link below and send it to the client.</p>
+          <p className="text-sm font-semibold">Next step: copy the message or the link above and send it to the client.</p>
           <p className="text-sm text-ink-soft">Once they sign, the loan appears in <b>Applications</b> as "Signed · to release". Release the money, then tap <b>Release</b>.</p>
           <div className="flex justify-end gap-2">
             <Button variant="secondary" onClick={() => { onClose(); nav(`/admin/loans/${created.loan.id}`) }}>Open loan</Button>
