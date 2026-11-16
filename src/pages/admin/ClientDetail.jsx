@@ -4,7 +4,7 @@ import { supabase } from '../../lib/supabase.js'
 import { useData } from '../../lib/data.jsx'
 import { peso } from '../../lib/loanMath.js'
 import { Badge, Button, Card, Empty, ErrorNote, Modal, Stat } from '../../components/ui.jsx'
-import { ClientModal, LoanTable, NewLoanModal, PrivateImage } from '../../components/admin.jsx'
+import { ClientModal, LoanTable, NewLoanModal, KycPhotos } from '../../components/admin.jsx'
 
 export default function ClientDetail() {
   const { id } = useParams()
@@ -71,10 +71,7 @@ export default function ClientDetail() {
             {referrals.length > 0 && <Info k="Referred" v={referrals.map((r, i) => <span key={r.id}>{i > 0 && ', '}<Link className="underline" to={`/admin/clients/${r.id}`}>{r.full_name}</Link></span>)} />}
             <Info k="Notes" v={c.notes} />
           </dl>
-          <div className="grid grid-cols-2 gap-2">
-            <div><div className="label">ID {c.id_type && `· ${c.id_type}`}</div><PrivateImage path={c.id_photo_path} alt="ID" name={`${c.full_name} - Valid ID`} /></div>
-            <div><div className="label">Selfie</div><PrivateImage path={c.selfie_path} alt="Selfie" name={`${c.full_name} - Selfie with ID`} /></div>
-          </div>
+          <div className="mx-auto max-w-[320px]"><div className="label">Selfie with ID and Valid ID {c.id_type && `· ${c.id_type}`}</div><KycPhotos client={c} /></div>
           <div className="flex flex-wrap gap-2 border-t border-line pt-3">
             {c.status === 'blocked'
               ? <Button size="sm" variant="secondary" onClick={() => setStatus('approved')}>Unblock</Button>

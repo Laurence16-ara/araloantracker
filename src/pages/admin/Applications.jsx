@@ -7,7 +7,7 @@ import { payoutLabel } from '../../lib/payout.js'
 import { randomToken } from '../../lib/utils.js'
 import { buildContractText } from '../../lib/contract.js'
 import { Badge, Button, Card, Empty, ErrorNote, Field, Modal, PageHeader, Segmented } from '../../components/ui.jsx'
-import { PrivateImage, SignLinkBox } from '../../components/admin.jsx'
+import { KycPhotos, SignLinkBox } from '../../components/admin.jsx'
 import SignedContract, { CopyContractImageButton } from '../../components/SignedContract.jsx'
 
 export default function Applications() {
@@ -78,9 +78,8 @@ function ReleaseCard({ loan }) {
       </div>
 
       {isNew && (
-        <div className="mt-4 grid gap-4 sm:grid-cols-[1fr_1fr_1.2fr]">
-          <div><div className="label">Valid ID · {c.id_type}</div><PrivateImage path={c.id_photo_path} alt="ID" name={`${c.full_name} - Valid ID`} /></div>
-          <div><div className="label">Selfie with ID</div><PrivateImage path={c.selfie_path} alt="Selfie" name={`${c.full_name} - Selfie with ID`} />
+        <div className="mt-4 grid gap-4 sm:grid-cols-[minmax(0,280px)_1fr]">
+          <div><div className="label">Selfie with ID and Valid ID · {c.id_type}</div><KycPhotos client={c} />
             {c.signature && <div className="mt-3"><div className="label">Signature on application</div><img src={c.signature} alt="Applicant's signature" className="mt-1 h-20 w-full rounded-lg border border-line bg-white object-contain p-2" /></div>}
           </div>
           <dl className="space-y-1.5 text-sm">

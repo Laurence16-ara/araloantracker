@@ -430,42 +430,105 @@ export function ClientModal({ open, onClose, client }) {
 }
 
 // ---------------------------------------------------------------- Private photo
-// Turns a private photo into a PNG (clipboards only take PNG), capped so it stays light for Messenger.
-async function photoPng(url) {
-  const res = await fetch(url)
-  if (!res.ok) throw new Error('fetch')
-  const src = await res.blob()
-  const objUrl = URL.createObjectURL(src)
+// ---------------------------------------------------------------- ID photos (one image: selfie with ID on top, ID below)
+async function loadPrivatePhoto(path) {
+  if (!path) return null
+  const { data } = await supabase.storage.from('kyc').createSignedUrl(path, 600)
+  if (!data?.signedUrl) return null
+  const res = await fetch(data.signedUrl)
+  if (!res.ok) return null
+  const objUrl = URL.createObjectURL(await res.blob())
   try {
     const img = new Image()
     img.src = objUrl
     await img.decode()
-    const scale = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight))
-    const canvas = document.createElement('canvas')
-    canvas.width = Math.round(img.naturalWidth * scale)
-    canvas.height = Math.round(img.naturalHeight * scale)
-    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height)
-    return await new Promise((ok, fail) => canvas.toBlob((b) => (b ? ok(b) : fail(new Error('png'))), 'image/png'))
+    // Keep a copy on a canvas so the temporary link can be released.
+    const c = document.createElement('canvas')
+    c.width = img.naturalWidth; c.height = img.naturalHeight
+    c.getContext('2d').drawImage(img, 0, 0)
+    return c
   } finally {
     URL.revokeObjectURL(objUrl)
   }
 }
 
-export function PrivateImage({ path, alt, name }) {
-  const [url, setUrl] = useState(null)
+// turns: quarter turns clockwise applied to the ID photo.
+function drawKycSheet(selfie, idPhoto, turns) {
+  const W = 1000, PAD = 24, GAP = 20
+  const inner = W - PAD * 2
+  const idSwap = turns % 2 === 1
+  const idW = idPhoto ? (idSwap ? idPhoto.height : idPhoto.width) : 0
+  const idH = idPhoto ? (idSwap ? idPhoto.width : idPhoto.height) : 0
+  const selfieH = selfie ? Math.round(inner * selfie.height / selfie.width) : 0
+  const idDrawH = idPhoto ? Math.round(inner * idH / idW) : 0
+  const canvas = document.createElement('canvas')
+  canvas.width = W
+  canvas.height = PAD * 2 + selfieH + idDrawH + (selfie && idPhoto ? GAP : 0)
+  const ctx = canvas.getContext('2d')
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  let y = PAD
+  if (selfie) { ctx.drawImage(selfie, PAD, y, inner, selfieH); y += selfieH + GAP }
+  if (idPhoto) {
+    ctx.save()
+    ctx.translate(PAD + inner / 2, y + idDrawH / 2)
+    ctx.rotate(turns * Math.PI / 2)
+    const w = idSwap ? idDrawH : inner, h = idSwap ? inner : idDrawH
+    ctx.drawImage(idPhoto, -w / 2, -h / 2, w, h)
+    ctx.restore()
+  }
+  return canvas
+}
+const canvasBlob = (canvas, type, q) => new Promise((ok, fail) => canvas.toBlob((b) => (b ? ok(b) : fail(new Error('image'))), type, q))
+
+export function KycPhotos({ client }) {
+  const { id_photo_path: idPath, selfie_path: selfiePath } = client
+  const key = `kyc-turns:${idPath}`
+  const [photos, setPhotos] = useState(null)
+  const [turns, setTurns] = useState(null)
+  const [preview, setPreview] = useState(null)
   const [msg, setMsg] = useState(null)
   const [busy, setBusy] = useState(false)
+
   useEffect(() => {
-    if (!path) return
-    supabase.storage.from('kyc').createSignedUrl(path, 600).then(({ data }) => setUrl(data?.signedUrl))
-  }, [path])
-  if (!path) return <div className="flex h-40 items-center justify-center rounded-lg bg-paper text-xs text-ink-faint">No photo</div>
-  if (!url) return <div className="h-40 animate-pulse rounded-lg bg-paper" />
+    let live = true
+    setPhotos(null); setTurns(null)
+    if (!idPath && !selfiePath) return
+    Promise.all([loadPrivatePhoto(selfiePath).catch(() => null), loadPrivatePhoto(idPath).catch(() => null)]).then(([selfie, idPhoto]) => {
+      if (!live) return
+      let saved = null
+      try { saved = localStorage.getItem(key) } catch { /* private mode */ }
+      // An ID photo taken upright is turned on its side so the card lies horizontally.
+      const auto = idPhoto && idPhoto.height > idPhoto.width ? 3 : 0
+      setPhotos({ selfie, idPhoto })
+      setTurns(saved === null ? auto : Number(saved) % 4)
+    })
+    return () => { live = false }
+  }, [idPath, selfiePath])
+
+  useEffect(() => {
+    if (!photos || turns === null || (!photos.selfie && !photos.idPhoto)) return
+    let url = null, live = true
+    canvasBlob(drawKycSheet(photos.selfie, photos.idPhoto, turns), 'image/jpeg', 0.85).then((b) => {
+      if (!live) return
+      url = URL.createObjectURL(b); setPreview(url)
+    })
+    return () => { live = false; if (url) URL.revokeObjectURL(url) }
+  }, [photos, turns])
+
+  if (!idPath && !selfiePath) return <div className="flex h-40 items-center justify-center rounded-lg bg-paper text-xs text-ink-faint">No photos</div>
+  if (photos && !photos.selfie && !photos.idPhoto) return <div className="flex h-40 items-center justify-center rounded-lg bg-paper text-xs text-ink-faint">Could not load the photos</div>
+  if (!preview) return <div className="h-64 animate-pulse rounded-lg bg-paper" />
+
   const flash = (m) => { setMsg(m); setTimeout(() => setMsg(null), 2500) }
+  function rotate() {
+    const next = (turns + 1) % 4
+    setTurns(next)
+    try { localStorage.setItem(key, String(next)) } catch { /* private mode */ }
+  }
   async function copy() {
     setBusy(true)
-    // The link only lasts 10 minutes, so get a fresh one in case the page has been open a while.
-    const blob = supabase.storage.from('kyc').createSignedUrl(path, 600).then(({ data }) => photoPng(data?.signedUrl || url))
+    const blob = canvasBlob(drawKycSheet(photos.selfie, photos.idPhoto, turns), 'image/png')
     try {
       if (!window.ClipboardItem || !navigator.clipboard?.write) throw new Error('unsupported')
       // Safari needs the ClipboardItem created right on the tap, so it gets the promise.
@@ -473,7 +536,7 @@ export function PrivateImage({ path, alt, name }) {
       flash('Copied ✓')
     } catch {
       try {
-        const file = new File([await blob], `${name || alt || 'photo'}.png`, { type: 'image/png' })
+        const file = new File([await blob], `${client.full_name} - ID.png`, { type: 'image/png' })
         if (navigator.canShare?.({ files: [file] })) await navigator.share({ files: [file] })
         else {
           const a = document.createElement('a')
@@ -487,14 +550,16 @@ export function PrivateImage({ path, alt, name }) {
     }
     setBusy(false)
   }
+  const btn = 'rounded-lg border border-line bg-card px-2 py-1.5 text-xs font-semibold text-ink-soft hover:text-ink disabled:opacity-60'
   return (
     <div>
-      <a href={url} target="_blank" rel="noreferrer">
-        <img src={url} alt={alt} className="h-40 w-full rounded-lg object-cover" />
+      <a href={preview} target="_blank" rel="noreferrer">
+        <img src={preview} alt={`Selfie with ID and valid ID of ${client.full_name}`} className="w-full rounded-lg border border-line" />
       </a>
-      <button type="button" onClick={copy} disabled={busy} className="mt-1.5 w-full rounded-lg border border-line bg-card px-2 py-1.5 text-xs font-semibold text-ink-soft hover:text-ink disabled:opacity-60">
-        {msg || (busy ? 'Copying…' : 'Copy image')}
-      </button>
+      <div className="mt-1.5 flex gap-2">
+        <button type="button" onClick={copy} disabled={busy} className={`flex-1 ${btn}`}>{msg || (busy ? 'Copying…' : 'Copy image')}</button>
+        {photos.idPhoto && <button type="button" onClick={rotate} className={btn}>Rotate ID</button>}
+      </div>
     </div>
   )
 }
