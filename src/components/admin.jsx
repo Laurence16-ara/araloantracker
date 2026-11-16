@@ -289,7 +289,7 @@ export function NewLoanModal({ open, onClose, clientId }) {
 }
 
 // ---------------------------------------------------------------- Payment
-export function PaymentModal({ open, onClose, loan }) {
+export function PaymentModal({ open, onClose, loan, payment }) {
   const { reload } = useData()
   const [f, setF] = useState({})
   const [busy, setBusy] = useState(false)
@@ -297,18 +297,33 @@ export function PaymentModal({ open, onClose, loan }) {
   useEffect(() => {
     if (!open || !loan) return
     const next = loan.state.nextDue
-    setF({ amount: String(next ? next.remaining : loan.state.balance), penalty: '', paid_on: todayPH(), method: 'bank', note: '' })
+    if (payment) setF({ amount: String(Number(payment.amount)), penalty: Number(payment.penalty) ? String(Number(payment.penalty)) : '', paid_on: payment.paid_on, method: payment.method || 'bank', note: payment.note || '' })
+    else setF({ amount: String(next ? next.remaining : loan.state.balance), penalty: '', paid_on: todayPH(), method: 'bank', note: '' })
     setErr(null)
-  }, [open, loan])
+  }, [open, loan, payment])
   if (!loan) return null
+  // When editing, work out the balance as if this payment was not there yet.
+  const balance = round2(loan.state.balance + (payment ? Number(payment.amount) : 0))
   async function save() {
     const amount = Number(f.amount) || 0
     const penalty = Number(f.penalty) || 0
     if (amount <= 0 && penalty <= 0) return setErr('Enter an amount.')
     setBusy(true); setErr(null)
-    const { error } = await supabase.from('payments').insert({ loan_id: loan.id, amount, penalty, paid_on: f.paid_on, method: f.method, note: f.note || null })
-    if (!error && round2(loan.state.paid + amount) >= loan.state.total && loan.status === 'active') {
+    if (!f.paid_on) { setBusy(false); return setErr('Choose the date.') }
+    const row = { amount, penalty, paid_on: f.paid_on, method: f.method, note: f.note || null }
+    const { error } = payment
+      ? await supabase.from('payments').update(row).eq('id', payment.id)
+      : await supabase.from('payments').insert({ loan_id: loan.id, ...row })
+    const paidAfter = round2(loan.state.paid - (payment ? Number(payment.amount) : 0) + amount)
+    if (!error && paidAfter >= loan.state.total && loan.status === 'active') {
       await supabase.from('loans').update({ status: 'paid', paid_at: f.paid_on }).eq('id', loan.id)
+    } else if (!error && payment && loan.status === 'paid') {
+      // Keep the loan in step with the edited payment: reopen it if it is no longer covered, else fix the paid date.
+      if (paidAfter < loan.state.total) await supabase.from('loans').update({ status: 'active', paid_at: null }).eq('id', loan.id)
+      else {
+        const last = loan.payments.map((p) => (p.id === payment.id ? f.paid_on : p.paid_on)).sort().pop()
+        if (last && last !== loan.paid_at) await supabase.from('loans').update({ paid_at: last }).eq('id', loan.id)
+      }
     }
     setBusy(false)
     if (error) return setErr(error.message)
@@ -316,11 +331,11 @@ export function PaymentModal({ open, onClose, loan }) {
     onClose()
   }
   return (
-    <Modal open={open} onClose={onClose} title="Add payment">
+    <Modal open={open} onClose={onClose} title={payment ? 'Edit payment' : 'Add payment'}>
       <div className="space-y-3">
         <div className="rounded-lg bg-paper p-3 text-sm">
-          <div className="flex justify-between"><span className="text-ink-soft">Balance</span><span className="font-bold num">{peso(loan.state.balance)}</span></div>
-          {loan.state.nextDue && <div className="flex justify-between"><span className="text-ink-soft">Next due {fmtDate(loan.state.nextDue.due)}</span><span className="num">{peso(loan.state.nextDue.remaining)}</span></div>}
+          <div className="flex justify-between"><span className="text-ink-soft">Balance</span><span className="font-bold num">{peso(balance)}</span></div>
+          {!payment && loan.state.nextDue && <div className="flex justify-between"><span className="text-ink-soft">Next due {fmtDate(loan.state.nextDue.due)}</span><span className="num">{peso(loan.state.nextDue.remaining)}</span></div>}
         </div>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Amount received" hint="Full or partial"><input className="input font-semibold num" inputMode="decimal" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} /></Field>
@@ -332,17 +347,17 @@ export function PaymentModal({ open, onClose, loan }) {
             </select>
           </Field>
         </div>
-        {Number(f.amount) > 0 && Number(f.amount) < loan.state.balance && (
-          <div className="rounded-lg bg-amber-light px-3 py-2 text-sm text-amber">Partial payment. Balance after this: <b className="num">{peso(round2(loan.state.balance - Number(f.amount)))}</b></div>
+        {Number(f.amount) > 0 && Number(f.amount) < balance && (
+          <div className="rounded-lg bg-amber-light px-3 py-2 text-sm text-amber">Partial payment. Balance after this: <b className="num">{peso(round2(balance - Number(f.amount)))}</b></div>
         )}
         <div className="flex flex-wrap gap-2">
-          <button className="rounded-full border border-line px-3 py-1 text-xs font-semibold text-ink-soft" onClick={() => setF({ ...f, amount: String(loan.state.balance) })}>Full balance {peso(loan.state.balance)}</button>
+          <button className="rounded-full border border-line px-3 py-1 text-xs font-semibold text-ink-soft" onClick={() => setF({ ...f, amount: String(balance) })}>Full balance {peso(balance)}</button>
         </div>
         <Field label="Note (optional)"><input className="input" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} /></Field>
         <ErrorNote>{err}</ErrorNote>
         <div className="flex justify-end gap-2">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button onClick={save} loading={busy}>Save payment</Button>
+          <Button onClick={save} loading={busy}>{payment ? 'Save changes' : 'Save payment'}</Button>
         </div>
       </div>
     </Modal>
@@ -415,17 +430,71 @@ export function ClientModal({ open, onClose, client }) {
 }
 
 // ---------------------------------------------------------------- Private photo
-export function PrivateImage({ path, alt }) {
+// Turns a private photo into a PNG (clipboards only take PNG), capped so it stays light for Messenger.
+async function photoPng(url) {
+  const res = await fetch(url)
+  if (!res.ok) throw new Error('fetch')
+  const src = await res.blob()
+  const objUrl = URL.createObjectURL(src)
+  try {
+    const img = new Image()
+    img.src = objUrl
+    await img.decode()
+    const scale = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight))
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.round(img.naturalWidth * scale)
+    canvas.height = Math.round(img.naturalHeight * scale)
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height)
+    return await new Promise((ok, fail) => canvas.toBlob((b) => (b ? ok(b) : fail(new Error('png'))), 'image/png'))
+  } finally {
+    URL.revokeObjectURL(objUrl)
+  }
+}
+
+export function PrivateImage({ path, alt, name }) {
   const [url, setUrl] = useState(null)
+  const [msg, setMsg] = useState(null)
+  const [busy, setBusy] = useState(false)
   useEffect(() => {
     if (!path) return
     supabase.storage.from('kyc').createSignedUrl(path, 600).then(({ data }) => setUrl(data?.signedUrl))
   }, [path])
   if (!path) return <div className="flex h-40 items-center justify-center rounded-lg bg-paper text-xs text-ink-faint">No photo</div>
   if (!url) return <div className="h-40 animate-pulse rounded-lg bg-paper" />
+  const flash = (m) => { setMsg(m); setTimeout(() => setMsg(null), 2500) }
+  async function copy() {
+    setBusy(true)
+    // The link only lasts 10 minutes, so get a fresh one in case the page has been open a while.
+    const blob = supabase.storage.from('kyc').createSignedUrl(path, 600).then(({ data }) => photoPng(data?.signedUrl || url))
+    try {
+      if (!window.ClipboardItem || !navigator.clipboard?.write) throw new Error('unsupported')
+      // Safari needs the ClipboardItem created right on the tap, so it gets the promise.
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+      flash('Copied ✓')
+    } catch {
+      try {
+        const file = new File([await blob], `${name || alt || 'photo'}.png`, { type: 'image/png' })
+        if (navigator.canShare?.({ files: [file] })) await navigator.share({ files: [file] })
+        else {
+          const a = document.createElement('a')
+          a.href = URL.createObjectURL(file); a.download = file.name; a.click()
+          setTimeout(() => URL.revokeObjectURL(a.href), 5000)
+          flash('Downloaded')
+        }
+      } catch (e) {
+        if (e?.name !== 'AbortError') flash('Could not copy')
+      }
+    }
+    setBusy(false)
+  }
   return (
-    <a href={url} target="_blank" rel="noreferrer">
-      <img src={url} alt={alt} className="h-40 w-full rounded-lg object-cover" />
-    </a>
+    <div>
+      <a href={url} target="_blank" rel="noreferrer">
+        <img src={url} alt={alt} className="h-40 w-full rounded-lg object-cover" />
+      </a>
+      <button type="button" onClick={copy} disabled={busy} className="mt-1.5 w-full rounded-lg border border-line bg-card px-2 py-1.5 text-xs font-semibold text-ink-soft hover:text-ink disabled:opacity-60">
+        {msg || (busy ? 'Copying…' : 'Copy image')}
+      </button>
+    </div>
   )
 }

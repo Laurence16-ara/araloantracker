@@ -72,8 +72,8 @@ export default function ClientDetail() {
             <Info k="Notes" v={c.notes} />
           </dl>
           <div className="grid grid-cols-2 gap-2">
-            <div><div className="label">ID {c.id_type && `· ${c.id_type}`}</div><PrivateImage path={c.id_photo_path} alt="ID" /></div>
-            <div><div className="label">Selfie</div><PrivateImage path={c.selfie_path} alt="Selfie" /></div>
+            <div><div className="label">ID {c.id_type && `· ${c.id_type}`}</div><PrivateImage path={c.id_photo_path} alt="ID" name={`${c.full_name} - Valid ID`} /></div>
+            <div><div className="label">Selfie</div><PrivateImage path={c.selfie_path} alt="Selfie" name={`${c.full_name} - Selfie with ID`} /></div>
           </div>
           <div className="flex flex-wrap gap-2 border-t border-line pt-3">
             {c.status === 'blocked'

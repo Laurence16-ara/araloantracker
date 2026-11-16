@@ -14,6 +14,7 @@ export default function LoanDetail() {
   const nav = useNavigate()
   const loan = loansById[id]
   const [pay, setPay] = useState(false)
+  const [editPay, setEditPay] = useState(null)
   const [edit, setEdit] = useState(false)
   const [contract, setContract] = useState(false)
   if (!loan) return <Empty>Loan not found. <Link className="underline" to="/admin/records">Back to records</Link></Empty>
@@ -113,7 +114,7 @@ export default function LoanDetail() {
                     <td className="text-right font-semibold num">{peso(p.amount)}</td>
                     <td className="text-right num text-ink-soft">{Number(p.penalty) ? peso(p.penalty) : '—'}</td>
                     <td className="capitalize text-ink-soft">{p.method}</td>
-                    <td className="text-right"><button onClick={() => delPayment(p)} className="text-xs text-ink-faint hover:text-rust">Delete</button></td>
+                    <td className="whitespace-nowrap text-right"><button onClick={() => setEditPay(p)} className="mr-3 text-xs font-semibold text-moss hover:underline">Edit</button><button onClick={() => delPayment(p)} className="text-xs text-ink-faint hover:text-rust">Delete</button></td>
                   </tr>
                 ))}
               </tbody>
@@ -130,6 +131,7 @@ export default function LoanDetail() {
       </div>
 
       <PaymentModal open={pay} onClose={() => setPay(false)} loan={loan} />
+      <PaymentModal open={Boolean(editPay)} onClose={() => setEditPay(null)} loan={loan} payment={editPay} />
       <EditLoanModal open={edit} onClose={() => setEdit(false)} loan={loan} />
       <Modal open={contract} onClose={() => setContract(false)} title="Signed contract" wide>
         <SignedContract loan={loan} client={c} settings={settings} />
