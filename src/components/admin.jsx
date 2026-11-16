@@ -108,9 +108,11 @@ export function NewLoanModal({ open, onClose, clientId }) {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(null)
   const [created, setCreated] = useState(null)
+  const [fix, setFix] = useState({ phone: '', address: '' })
 
   useEffect(() => {
     if (!open) return
+    setFix({ phone: '', address: '' })
     setMode('existing'); setPick(clientId || ''); setSearch(''); setNc({ full_name: '', phone: '', address: '' })
     setF({ principal: '', interest_rate: settings?.default_rate ?? 20, interest: '', schedule: 'semi_monthly', release_date: todayPH(), sign: 'link' })
     setInterestEdited(false); setErr(null); setCreated(null)
@@ -123,6 +125,8 @@ export function NewLoanModal({ open, onClose, clientId }) {
   const total = round2(principal + interest)
   const plan = schedulePlan({ principal, interest, schedule: f.schedule, release_date: f.release_date })
   const client = clients.find((c) => c.id === pick)
+  // An existing client with no phone or address on file (most clients from the old sheet): ask for it right here.
+  const needsInfo = mode === 'existing' && client && f.sign === 'link' && (!client.phone || !client.address)
   const active = (loansByClient[pick] || []).filter((l) => l.status === 'active')
 
   const matches = useMemo(() => {
@@ -138,7 +142,9 @@ export function NewLoanModal({ open, onClose, clientId }) {
     if (mode === 'existing' && !pick) return setErr('Choose a client.')
     if (mode === 'new' && !nc.full_name.trim()) return setErr('Enter the client name.')
     if (f.sign === 'link' && mode === 'new' && (!nc.phone.trim() || nc.address.trim().length < 8)) return setErr('Add the client phone and complete address before preparing a contract.')
-    if (f.sign === 'link' && mode === 'existing' && (!client?.phone || !client?.address)) return setErr('Add the client phone and complete address before preparing a contract.')
+    const phone = client?.phone || normalizePhone(fix.phone) || ''
+    const address = client?.address || fix.address.trim()
+    if (f.sign === 'link' && mode === 'existing' && (!phone || address.length < 8)) return setErr('Type the client\'s mobile number and complete address above. They are needed for the contract.')
     if (!f.release_date) return setErr('Enter the release date.')
     setBusy(true)
     try {
@@ -152,6 +158,11 @@ export function NewLoanModal({ open, onClose, clientId }) {
         cid = data.id; cl = data
       }
       const viaLink = f.sign === 'link'
+      if (viaLink && mode === 'existing' && (!cl.phone || !cl.address)) {
+        const { error } = await supabase.from('clients').update({ phone, address }).eq('id', cid)
+        if (error) throw error
+        cl = { ...cl, phone, address }
+      }
       const row = {
         client_id: cid,
         principal,
@@ -280,6 +291,15 @@ export function NewLoanModal({ open, onClose, clientId }) {
               ))}
             </div>
           </div>
+          {needsInfo && (
+            <div className="rounded-lg border border-amber/30 bg-amber-light/60 p-3">
+              <div className="mb-2 text-sm font-semibold text-amber">The contract needs {client.full_name.split(' ')[0]}'s {[!client.phone && 'mobile number', !client.address && 'address'].filter(Boolean).join(' and ')}. It will be saved to their profile.</div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {!client.phone && <Field label="Mobile"><input className="input" inputMode="tel" placeholder="09171234567" value={fix.phone} onChange={(e) => setFix({ ...fix, phone: e.target.value })} /></Field>}
+                {!client.address && <Field label="Complete address" className={client.phone ? 'sm:col-span-2' : ''}><input className="input" value={fix.address} onChange={(e) => setFix({ ...fix, address: e.target.value })} /></Field>}
+              </div>
+            </div>
+          )}
           <ErrorNote>{err}</ErrorNote>
           <div className="flex justify-end gap-2">
             <Button variant="secondary" onClick={onClose}>Cancel</Button>
