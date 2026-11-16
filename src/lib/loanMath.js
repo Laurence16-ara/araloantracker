@@ -195,3 +195,27 @@ export function scheduleText(loan) {
   if (plan.length === 1) return `one payment of ${peso(plan[0].amount)} on ${fmtDate(plan[0].due)}`
   return plan.map((p) => `${peso(p.amount)} on ${fmtDate(p.due)}`).join(', ')
 }
+
+// Short text Ara sends to the client in Messenger, e.g.
+//   Nov 16 total loan w/interest: ₱6,000
+//   To be paid: ₱3k on Dec 1 and Dec 16
+//   Penalty per day of delay (3% of ₱3k): ₱90 per day
+const shortPeso = (n) => (n >= 1000 && n % 100 === 0 ? `₱${n / 1000}k` : peso(n, { decimals: !Number.isInteger(n) }))
+const joinAnd = (a) => (a.length <= 1 ? a.join('') : `${a.slice(0, -1).join(', ')} and ${a[a.length - 1]}`)
+export function loanSummaryText(loan, penaltyRate = 3) {
+  const plan = schedulePlan(loan)
+  if (!plan.length) return ''
+  const md = { month: 'short', day: 'numeric' }
+  const total = round2(Number(loan.principal) + Number(loan.interest))
+  const rate = Number(penaltyRate)
+  const same = plan.every((i) => i.amount === plan[0].amount)
+  const pay = same
+    ? `${shortPeso(plan[0].amount)} on ${joinAnd(plan.map((i) => fmtDate(i.due, md)))}`
+    : joinAnd(plan.map((i) => `${shortPeso(i.amount)} on ${fmtDate(i.due, md)}`))
+  const perDay = round2(plan[0].amount * rate / 100)
+  return [
+    `${fmtDate(loan.release_date, md)} total loan w/interest: ${peso(total, { decimals: !Number.isInteger(total) })}`,
+    `To be paid: ${pay}`,
+    `Penalty per day of delay (${rate}% of ${shortPeso(plan[0].amount)}): ${peso(perDay, { decimals: !Number.isInteger(perDay) })} per day`,
+  ].join('\n')
+}
