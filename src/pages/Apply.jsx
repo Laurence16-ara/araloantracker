@@ -24,6 +24,7 @@ export default function Apply() {
   const [f, setF] = useState({ full_name: '', phone: '', address: '', id_type: ID_TYPES[0], principal: '', payout_method: 'gcash', payout_other: '', use_my_number: true, payout_account: '' })
   const [idFile, setIdFile] = useState(null)
   const [selfieFile, setSelfieFile] = useState(null)
+  const [holdingId, setHoldingId] = useState(false)
   const [signature, setSignature] = useState(null)
   const [captchaToken, setCaptchaToken] = useState('')
   const [errors, setErrors] = useState({})
@@ -99,6 +100,7 @@ export default function Apply() {
     }
     if (s === 2 && !idFile) e.id = 'Please upload a photo of your valid ID.'
     if (s === 3 && !selfieFile) e.selfie = 'Please upload a selfie holding your ID.'
+    else if (s === 3 && !holdingId) e.holding = 'Please check your photo and tick the box. If your ID is not in the selfie, retake it.'
     if (s === 4) {
       if (f.payout_method === 'other' && f.payout_other.trim().length < 2) e.payout_other = 'Please type the name of your bank or e-wallet.'
       if (!f.use_my_number) {
@@ -259,8 +261,20 @@ export default function Apply() {
         <Card className="space-y-5 p-5">
           <StepTitle sub="Hold your ID beside your face, like this:">Take a selfie with your ID</StepTitle>
           <SelfieArt className="mx-auto w-full max-w-[260px]" />
-          <Tips items={['Your whole face is visible', 'Same ID as the last step', 'Good lighting, no sunglasses']} />
-          <PhotoInput file={selfieFile} onFile={setSelfieFile} error={errors.selfie} />
+          <Tips items={['Hold your ID beside your face', 'Your whole face is visible', 'Same ID as the last step', 'Good lighting, no sunglasses']} />
+          <div className="rounded-xl border border-rust/30 bg-rust/5 px-4 py-3 text-sm">
+            <b className="text-rust">Your ID must be in the selfie.</b> A selfie without your ID, or with an ID we can't read, means your application will not be approved.
+          </div>
+          <PhotoInput file={selfieFile} onFile={(file) => { setSelfieFile(file); setHoldingId(false) }} error={errors.selfie} />
+          {selfieFile && (
+            <div>
+              <label className={cx('flex cursor-pointer items-start gap-3 rounded-xl border-2 bg-white px-4 py-3 text-sm', errors.holding ? 'border-rust/50' : holdingId ? 'border-moss' : 'border-line')}>
+                <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0 accent-moss" checked={holdingId} onChange={(e) => setHoldingId(e.target.checked)} />
+                <span>In this photo, <b>I am holding my ID beside my face</b> and both my face and the ID are clear.</span>
+              </label>
+              {errors.holding && <p className="mt-1 text-xs font-medium text-rust">{errors.holding}</p>}
+            </div>
+          )}
           <p className="text-xs text-ink-faint">Your photos are stored privately and only seen by the lender for verification.</p>
         </Card>
       )}
