@@ -112,9 +112,11 @@ export function NewLoanModal({ open, onClose, clientId }) {
   useEffect(() => {
     if (!open) return
     setMode('existing'); setPick(clientId || ''); setSearch(''); setNc({ full_name: '', phone: '', address: '' })
-    setF({ principal: '', interest_rate: settings?.default_rate ?? 20, interest: '', schedule: 'semi_monthly', release_date: todayPH(), sign: 'paper' })
+    setF({ principal: '', interest_rate: settings?.default_rate ?? 20, interest: '', schedule: 'semi_monthly', release_date: todayPH(), sign: 'link' })
     setInterestEdited(false); setErr(null); setCreated(null)
-  }, [open, clientId, settings])
+    // Only reset when the window opens. Reloading the data after saving must not wipe the signing link screen.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, clientId])
 
   const principal = Number(f.principal) || 0
   const interest = interestEdited ? Number(f.interest) || 0 : interestFor(principal, f.interest_rate)
@@ -192,6 +194,7 @@ export function NewLoanModal({ open, onClose, clientId }) {
       {created ? (
         <div className="space-y-4">
           <SignLinkBox loan={created.loan} client={created.client} />
+          <p className="text-sm font-semibold">Next step: copy the message or the link below and send it to the client.</p>
           <p className="text-sm text-ink-soft">Once they sign, the loan appears in <b>Applications</b> as "Signed · to release". Release the money, then tap <b>Release</b>.</p>
           <div className="flex justify-end gap-2">
             <Button variant="secondary" onClick={() => { onClose(); nav(`/admin/loans/${created.loan.id}`) }}>Open loan</Button>
