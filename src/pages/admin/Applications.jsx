@@ -2,12 +2,12 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase.js'
 import { useData } from '../../lib/data.jsx'
-import { peso, fmtDate, SCHEDULES, round2, todayPH, schedulePlan } from '../../lib/loanMath.js'
+import { peso, fmtDate, SCHEDULES, round2, todayPH, schedulePlan, loanSummaryText } from '../../lib/loanMath.js'
 import { payoutLabel } from '../../lib/payout.js'
 import { randomToken } from '../../lib/utils.js'
 import { buildContractText } from '../../lib/contract.js'
 import { Badge, Button, Card, Empty, ErrorNote, Field, Modal, PageHeader, Segmented } from '../../components/ui.jsx'
-import { KycPhotos, SignLinkBox } from '../../components/admin.jsx'
+import { CopyKycSummaryButton, KycPhotos, SignLinkBox } from '../../components/admin.jsx'
 import SignedContract, { CopyContractImageButton } from '../../components/SignedContract.jsx'
 
 export default function Applications() {
@@ -121,6 +121,8 @@ function ReleaseCard({ loan }) {
         <Button onClick={release} loading={busy === 'release'}>Release loan</Button>
         <Button variant="secondary" onClick={() => setContract(true)}>View contract</Button>
         <CopyContractImageButton loan={loan} client={c} settings={settings} size="md" />
+        {/* Uses the schedule and release date picked above, so it matches what will be released. */}
+        <CopyKycSummaryButton client={c} summary={loanSummaryText({ ...loan, schedule, release_date: releaseDate }, settings?.penalty_rate ?? 3)} />
         <Button variant="danger" onClick={reject} loading={busy === 'reject'}>Reject</Button>
       </div>
       <div className="mt-2"><ErrorNote>{err}</ErrorNote></div>
