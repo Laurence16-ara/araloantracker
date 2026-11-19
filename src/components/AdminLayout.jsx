@@ -6,6 +6,19 @@ import { Button, Card, ErrorNote, Field, Spinner } from './ui.jsx'
 import { cx } from '../lib/utils.js'
 
 export default function AdminLayout() {
+  return (
+    <AdminGate>
+      {(email) => (
+        <DataProvider>
+          <Shell email={email} />
+        </DataProvider>
+      )}
+    </AdminGate>
+  )
+}
+
+// Shared sign-in for the admin pages (loans and the separate money page).
+export function AdminGate({ children }) {
   const [session, setSession] = useState(undefined)
   const [isAdmin, setIsAdmin] = useState(null)
 
@@ -20,6 +33,13 @@ export default function AdminLayout() {
     supabase.rpc('is_admin').then(({ data }) => setIsAdmin(!!data))
   }, [session])
 
+  useEffect(() => {
+    if (!session) return
+    let next = null
+    try { next = sessionStorage.getItem('after-login'); sessionStorage.removeItem('after-login') } catch { /* private mode */ }
+    if (next && next.startsWith('/') && next !== window.location.pathname) window.location.replace(next)
+  }, [session])
+
   if (session === undefined || (session && isAdmin === null)) return <FullSpinner />
   if (!session) return <Login />
   if (!isAdmin)
@@ -30,11 +50,7 @@ export default function AdminLayout() {
         <Button variant="secondary" className="mt-4" onClick={() => supabase.auth.signOut()}>Sign out</Button>
       </div>
     )
-  return (
-    <DataProvider>
-      <Shell email={session.user.email} />
-    </DataProvider>
-  )
+  return children(session.user.email)
 }
 
 const NAV = [
@@ -76,6 +92,9 @@ function Shell({ email }) {
               </NavLink>
             ))}
           </nav>
+          <a href="/money" className="mt-6 flex items-center gap-3 rounded-lg border border-dashed border-line px-3 py-2 text-sm font-semibold text-ink-soft hover:bg-paper hover:text-ink">
+            <span className="w-4 text-center">₱</span><span className="flex-1">Money</span><span className="text-xs text-ink-faint">↗</span>
+          </a>
           <div className="mt-auto border-t border-line pt-3 text-xs text-ink-faint">
             <div className="truncate">{email}</div>
             <button className="mt-1 font-semibold text-ink-soft hover:text-ink" onClick={() => supabase.auth.signOut()}>Sign out</button>
@@ -86,7 +105,10 @@ function Shell({ email }) {
       {/* Top bar (mobile) */}
       <header className="no-print sticky top-0 z-30 flex items-center justify-between border-b border-line bg-card/95 px-4 py-2.5 backdrop-blur lg:hidden">
         <Brand />
-        <NavLink to="/admin/settings" className="rounded-lg px-2 py-1 text-lg text-ink-soft">⚙</NavLink>
+        <div className="flex items-center gap-1">
+          <a href="/money" className="rounded-lg border border-line px-2.5 py-1 text-xs font-semibold text-ink-soft">Money</a>
+          <NavLink to="/admin/settings" className="rounded-lg px-2 py-1 text-lg text-ink-soft">⚙</NavLink>
+        </div>
       </header>
 
       <main className="min-w-0 flex-1 px-4 pb-28 pt-5 sm:px-6 lg:px-8 lg:pb-10 lg:pt-8">
@@ -123,7 +145,7 @@ function Brand() {
   )
 }
 
-function FullSpinner({ inline }) {
+export function FullSpinner({ inline }) {
   return <div className={cx('flex items-center justify-center text-moss', inline ? 'py-24' : 'min-h-screen')}><Spinner className="h-7 w-7" /></div>
 }
 
@@ -142,6 +164,7 @@ function Login() {
 
   async function google() {
     setBusy('google'); setErr(null)
+    try { sessionStorage.setItem('after-login', window.location.pathname) } catch { /* private mode */ }
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: `${window.location.origin}/admin`, queryParams: { prompt: 'select_account' } },

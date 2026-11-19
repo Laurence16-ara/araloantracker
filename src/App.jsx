@@ -13,6 +13,7 @@ const Clients = lazy(() => import('./pages/admin/Clients.jsx'))
 const ClientDetail = lazy(() => import('./pages/admin/ClientDetail.jsx'))
 const Reports = lazy(() => import('./pages/admin/Reports.jsx'))
 const Settings = lazy(() => import('./pages/admin/Settings.jsx'))
+const Money = lazy(() => import('./pages/Money.jsx'))
 
 export default function App() {
   if (!isConfigured) return <NotConfigured />
@@ -32,6 +33,7 @@ export default function App() {
         <Route path="reports" element={<Reports />} />
         <Route path="settings" element={<Settings />} />
       </Route>
+      <Route path="/money" element={<Money />} />
       <Route path="*" element={<Navigate to="/apply" replace />} />
     </Routes>
     </Suspense>
