@@ -38,7 +38,7 @@ async function addRecurringEntries(recurring) {
   for (const r of recurring.filter((x) => x.active)) {
     const from = r.start_month < shiftMonth(now, -12) ? shiftMonth(now, -12) : r.start_month
     for (const m of monthsBetween(from, now)) {
-      rows.push({ kind: 'income', category: r.category, amount: r.amount, entry_date: `${m}-${String(r.day_of_month).padStart(2, '0')}`, note: r.name, recurring_id: r.id, month_key: m })
+      rows.push({ kind: r.kind || 'income', category: r.category, amount: r.amount, entry_date: `${m}-${String(r.day_of_month).padStart(2, '0')}`, note: r.name, recurring_id: r.id, month_key: m })
     }
   }
   if (!rows.length) return
@@ -320,7 +320,7 @@ function Entries({ entries, onEdit }) {
             {d.items.map((e) => (
               <button key={e.id} onClick={() => onEdit(e)} className="flex w-full items-center justify-between gap-3 border-t border-line px-4 py-2.5 text-left first:border-t-0 hover:bg-paper">
                 <div className="min-w-0">
-                  <div className="text-sm font-semibold">{e.category}{e.recurring_id && Number(e.amount) === 0 && <span className="ml-1.5 text-xs font-normal text-ink-faint">not received</span>}</div>
+                  <div className="text-sm font-semibold">{e.category}{e.recurring_id && Number(e.amount) === 0 && <span className="ml-1.5 text-xs font-normal text-ink-faint">{e.kind === 'expense' ? 'skipped' : 'not received'}</span>}</div>
                   <div className="truncate text-xs text-ink-faint">
                     {e.gcash_amount != null ? `${money(e.gcash_amount)} cash-in/out${e.note ? ` · ${e.note}` : ''}` : e.note || (e.kind === 'income' ? 'Income' : 'Expense')}
                   </div>
@@ -409,7 +409,7 @@ function EntryModal({ entry, config, onClose, onSaved }) {
   return (
     <Modal open onClose={onClose} title={`Edit ${isGcash ? 'GCash' : entry.kind}`}>
       <div className="space-y-3">
-        {isRecurring && <p className="rounded-lg bg-paper px-3 py-2 text-sm text-ink-soft">{entry.note} is added every month. Change this month's amount here, or mark it as not received.</p>}
+        {isRecurring && <p className="rounded-lg bg-paper px-3 py-2 text-sm text-ink-soft">{entry.note} is added every month. Change this month's amount here (e.g. if the bill was different), or {entry.kind === 'expense' ? 'skip it for this month' : 'mark it as not received'}.</p>}
         <div className="grid grid-cols-2 gap-3">
           {isGcash && (
             <Field label="Cash-in / out amount" hint={<button type="button" className="underline" onClick={() => setF({ ...f, amount: String(gcashFee(f.gcash_amount, config.gcash_tiers)) })}>Set fee from table</button>}>
@@ -428,7 +428,7 @@ function EntryModal({ entry, config, onClose, onSaved }) {
         <ErrorNote>{err}</ErrorNote>
         <div className="flex flex-wrap justify-between gap-2 pt-1">
           {isRecurring
-            ? <Button variant="danger" onClick={notReceived} loading={busy === 'skip'} disabled={Number(entry.amount) === 0}>Not received</Button>
+            ? <Button variant="danger" onClick={notReceived} loading={busy === 'skip'} disabled={Number(entry.amount) === 0}>{entry.kind === 'expense' ? 'Skip this month' : 'Not received'}</Button>
             : <Button variant="danger" onClick={remove} loading={busy === 'delete'}>Delete</Button>}
           <div className="flex gap-2">
             <Button variant="secondary" onClick={onClose}>Cancel</Button>
@@ -464,7 +464,7 @@ function SettingsModal({ open, onClose, config, recurring, onSaved }) {
   async function save() {
     setErr(null)
     if (!cleanTiers.length) return setErr('Add at least one fee row.')
-    if (rec.some((r) => !r.name.trim() || !(Number(r.amount) >= 0) || !(Number(r.day_of_month) >= 1 && Number(r.day_of_month) <= 28))) return setErr('Each monthly income needs a name, an amount, and a day from 1 to 28.')
+    if (rec.some((r) => !r.name.trim() || !(Number(r.amount) >= 0) || !(Number(r.day_of_month) >= 1 && Number(r.day_of_month) <= 28))) return setErr('Each monthly item needs a name, an amount, and a day from 1 to 28.')
     setBusy(true)
     try {
       const { error } = await supabase.from('money_config').update({
@@ -472,7 +472,7 @@ function SettingsModal({ open, onClose, config, recurring, onSaved }) {
       }).eq('id', 1)
       if (error) throw error
       for (const r of rec) {
-        const row = { name: r.name.trim(), category: r.category, amount: Number(r.amount), day_of_month: Number(r.day_of_month), active: r.active }
+        const row = { kind: r.kind || 'income', name: r.name.trim(), category: r.category, amount: Number(r.amount), day_of_month: Number(r.day_of_month), active: r.active }
         const res = r.id ? await supabase.from('money_recurring').update(row).eq('id', r.id) : await supabase.from('money_recurring').insert(row)
         if (res.error) throw res.error
       }
@@ -509,29 +509,8 @@ function SettingsModal({ open, onClose, config, recurring, onSaved }) {
           )}
         </section>
 
-        <section>
-          <h3 className="font-semibold">Monthly income</h3>
-          <p className="mb-2 text-xs text-ink-faint">Added automatically every month on the day you set. Turn one off to stop adding it.</p>
-          <div className="space-y-2">
-            {rec.map((r, i) => {
-              const set = (k, v) => setRec(rec.map((x, j) => (j === i ? { ...x, [k]: v } : x)))
-              return (
-                <div key={r.id || `new-${i}`} className={cx('grid grid-cols-[1fr_96px] gap-2 rounded-lg border border-line p-2 sm:grid-cols-[1fr_110px_96px_70px_auto] sm:items-end', !r.active && 'opacity-60')}>
-                  <Field label="Name"><input className="input" value={r.name} onChange={(e) => set('name', e.target.value)} /></Field>
-                  <Field label="Amount"><input className="input num" inputMode="decimal" value={r.amount} onChange={(e) => set('amount', numOnly(e.target.value))} /></Field>
-                  <Field label="Category">
-                    <select className="input" value={r.category} onChange={(e) => set('category', e.target.value)}>
-                      {[...new Set([...incCats.filter((c) => c !== 'GCash'), r.category])].map((c) => <option key={c}>{c}</option>)}
-                    </select>
-                  </Field>
-                  <Field label="Day"><input className="input num" inputMode="numeric" value={r.day_of_month} onChange={(e) => set('day_of_month', e.target.value.replace(/\D/g, ''))} /></Field>
-                  <label className="col-span-2 flex items-center gap-2 pb-2 text-sm sm:col-span-1"><input type="checkbox" className="h-4 w-4 accent-moss" checked={r.active} onChange={(e) => set('active', e.target.checked)} />On</label>
-                </div>
-              )
-            })}
-          </div>
-          <button type="button" className="mt-2 text-sm font-semibold text-moss" onClick={() => setRec([...rec, { name: '', category: incCats.find((c) => c !== 'GCash') || 'Other', amount: '', day_of_month: '1', active: true }])}>+ Add monthly income</button>
-        </section>
+        <RecurringEditor kind="income" title="Monthly income" rec={rec} setRec={setRec} cats={incCats.filter((c) => c !== 'GCash')} />
+        <RecurringEditor kind="expense" title="Monthly bills" rec={rec} setRec={setRec} cats={expCats} />
 
         <CategoryEditor title="Expense categories" list={expCats} onChange={setExpCats} />
         <CategoryEditor title="Income categories" list={incCats.filter((c) => c !== 'GCash')} onChange={(l) => setIncCats([...l, 'GCash'])} />
@@ -543,6 +522,36 @@ function SettingsModal({ open, onClose, config, recurring, onSaved }) {
         </div>
       </div>
     </Modal>
+  )
+}
+
+// Monthly income (rental, parking) or monthly bills (wifi): added automatically every month.
+function RecurringEditor({ kind, title, rec, setRec, cats }) {
+  const mine = rec.map((r, i) => [r, i]).filter(([r]) => (r.kind || 'income') === kind)
+  return (
+    <section>
+      <h3 className="font-semibold">{title}</h3>
+      <p className="mb-2 text-xs text-ink-faint">Added automatically every month on the day you set. Turn one off to stop adding it.</p>
+      <div className="space-y-2">
+        {mine.map(([r, i]) => {
+          const set = (k, v) => setRec(rec.map((x, j) => (j === i ? { ...x, [k]: v } : x)))
+          return (
+            <div key={r.id || `new-${i}`} className={cx('grid grid-cols-[1fr_96px] gap-2 rounded-lg border border-line p-2 sm:grid-cols-[1fr_110px_96px_70px_auto] sm:items-end', !r.active && 'opacity-60')}>
+              <Field label="Name"><input className="input" value={r.name} onChange={(e) => set('name', e.target.value)} /></Field>
+              <Field label="Amount"><input className="input num" inputMode="decimal" value={r.amount} onChange={(e) => set('amount', numOnly(e.target.value))} /></Field>
+              <Field label="Category">
+                <select className="input" value={r.category} onChange={(e) => set('category', e.target.value)}>
+                  {[...new Set([...cats, r.category])].map((c) => <option key={c}>{c}</option>)}
+                </select>
+              </Field>
+              <Field label="Day"><input className="input num" inputMode="numeric" value={r.day_of_month} onChange={(e) => set('day_of_month', e.target.value.replace(/\D/g, ''))} /></Field>
+              <label className="col-span-2 flex items-center gap-2 pb-2 text-sm sm:col-span-1"><input type="checkbox" className="h-4 w-4 accent-moss" checked={r.active} onChange={(e) => set('active', e.target.checked)} />On</label>
+            </div>
+          )
+        })}
+      </div>
+      <button type="button" className="mt-2 text-sm font-semibold text-moss" onClick={() => setRec([...rec, { kind, name: '', category: cats[0] || 'Other', amount: '', day_of_month: '1', active: true }])}>+ Add {kind === 'expense' ? 'monthly bill' : 'monthly income'}</button>
+    </section>
   )
 }
 

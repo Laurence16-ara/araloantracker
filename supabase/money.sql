@@ -60,3 +60,9 @@ grant select, insert, update, delete on public.money_recurring, public.money_ent
 insert into public.money_recurring (name, category, amount)
 select v.name, v.category, v.amount from (values ('Rental property', 'Rental', 10000), ('Parking lot', 'Parking', 1800)) as v(name, category, amount)
 where not exists (select 1 from public.money_recurring);
+
+-- Monthly bills too (e.g. Wifi): a recurring row can be income or expense.
+alter table public.money_recurring add column if not exists kind text not null default 'income' check (kind in ('income','expense'));
+insert into public.money_recurring (kind, name, category, amount)
+select 'expense', 'Wifi', 'Wifi', 1399
+where not exists (select 1 from public.money_recurring where kind = 'expense' and lower(name) = 'wifi');
